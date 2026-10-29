@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pi-kitty-agents"
+version = "0.1.0"
+description = "A local, folder-grouped pi agent switcher for kitty"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+pi-kitty = "pi_kitty.cli:main"
+
+[tool.setuptools]
+packages = ["pi_kitty"]

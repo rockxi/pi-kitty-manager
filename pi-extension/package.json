@@ -1,0 +1,9 @@
+{
+  "name": "pi-kitty-agent-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Publish pi lifecycle metadata to the local kitty agent switcher",
+  "keywords": ["pi-package"],
+  "pi": {"extensions": ["./index.ts"]},
+  "peerDependencies": {"@earendil-works/pi-coding-agent": "*"}
+}
