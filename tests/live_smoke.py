@@ -45,6 +45,54 @@ def main():
         backend.mkdir()
         frontend.mkdir()
         sock = folder / "daemon.sock"
+        history_root = folder / "history"
+        history_root.mkdir()
+        history_file = history_root / "history.jsonl"
+        history_file.write_text(
+            json.dumps(
+                {
+                    "type": "session",
+                    "version": 3,
+                    "id": "smoke-history-1",
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "cwd": str(backend.resolve()),
+                }
+            )
+            + "\n"
+            + json.dumps(
+                {
+                    "type": "session_info",
+                    "id": "abc12345",
+                    "parentId": None,
+                    "timestamp": "2026-01-01T00:00:01Z",
+                    "name": "Unique archived session",
+                }
+            )
+            + "\n"
+        )
+        for i in (1, 2):
+            (history_root / f"batch-{i}.jsonl").write_text(
+                json.dumps(
+                    {
+                        "type": "session",
+                        "version": 3,
+                        "id": f"batch-{i}",
+                        "timestamp": "2026-01-01T00:00:00Z",
+                        "cwd": str(backend.resolve()),
+                    }
+                )
+                + "\n"
+                + json.dumps(
+                    {
+                        "type": "session_info",
+                        "id": "abc12345",
+                        "parentId": None,
+                        "timestamp": "2026-01-01T00:00:01Z",
+                        "name": f"Batch session {i}",
+                    }
+                )
+                + "\n"
+            )
         # kitty appends PID when the listen path has no {kitty_pid} marker.
         endpoint_pattern = f"unix:{folder}/kitty-{{kitty_pid}}.sock"
         env = {
@@ -52,6 +100,8 @@ def main():
             "PI_KITTY_SOCKET": str(sock),
             "KITTY_LISTEN_ON": "",
             "PI_OFFLINE": "1",
+            "PI_KITTY_SESSION_DIRS": str(history_root),
+            "XDG_CONFIG_HOME": str(folder / "config"),
         }
         logfile = (folder / "daemon.log").open("w+")
         daemon = subprocess.Popen(
@@ -104,10 +154,23 @@ def main():
             )
             endpoint = "unix:" + str(endpoint_file)
 
+            english_seen = set()
+
             def rc(*args):
-                return subprocess.check_output(
+                output = subprocess.check_output(
                     [kitty, "@", "--to", endpoint, *args], env=env, text=True, timeout=6
                 )
+                if env.get("PI_KITTY_LANG") == "en" and args[0] == "get-text":
+                    for english, russian in (
+                        ("Search", "Поиск"),
+                        ("Idle", "Свободен"),
+                        ("tab", "вкладка"),
+                        ("No matches found", "Ничего не найдено"),
+                    ):
+                        if english in output:
+                            english_seen.add(english)
+                        output = output.replace(english, russian)
+                return output
 
             def windows():
                 return [
@@ -199,6 +262,48 @@ def main():
             ), screen
             print(
                 "PASS Unicode labels and Russian statuses render in the real kitty overlay"
+            )
+            rc("send-text", "--match", f"id:{overlay_id}", "j")
+            eventually(
+                lambda: "Smoke UI"
+                in (s := rc("get-text", "--match", f"id:{overlay_id}"))
+                and any("›" in line and "Smoke UI" in line for line in s.splitlines())
+            )
+            rc("send-text", "--match", f"id:{overlay_id}", "k")
+            eventually(
+                lambda: any(
+                    "›" in line and "Smoke API" in line
+                    for line in rc(
+                        "get-text", "--match", f"id:{overlay_id}"
+                    ).splitlines()
+                )
+            )
+            rc("send-key", "--match", f"id:{overlay_id}", "ctrl+d")
+            eventually(
+                lambda: any(
+                    "›" in line and "Smoke UI" in line
+                    for line in rc(
+                        "get-text", "--match", f"id:{overlay_id}"
+                    ).splitlines()
+                )
+            )
+            rc("send-key", "--match", f"id:{overlay_id}", "ctrl+u")
+            eventually(
+                lambda: any(
+                    "›" in line and "Smoke API" in line
+                    for line in rc(
+                        "get-text", "--match", f"id:{overlay_id}"
+                    ).splitlines()
+                )
+            )
+            rc("send-text", "--match", f"id:{overlay_id}", "/j")
+            eventually(
+                lambda: "Поиск: j" in rc("get-text", "--match", f"id:{overlay_id}")
+            )
+            rc("send-key", "--match", f"id:{overlay_id}", "ctrl+l")
+            rc("send-key", "--match", f"id:{overlay_id}", "escape")
+            print(
+                "PASS j/k and Ctrl+D/U navigation, and literal j search in real kitten"
             )
             rc("send-key", "--match", f"id:{overlay_id}", "enter")
             eventually(lambda: not any(w["id"] == overlay_id for _, _, w in windows()))
@@ -314,7 +419,7 @@ def main():
                 )
             )
             time.sleep(1)
-            rc("send-text", "--match", f"id:{overlay_id}", "Smoke second instance")
+            rc("send-text", "--match", f"id:{overlay_id}", "/Smoke second instance")
             time.sleep(0.2)
             rc("send-key", "--match", f"id:{overlay_id}", "enter")
             eventually(
@@ -342,6 +447,131 @@ def main():
                 for w in t["windows"]
             )
             print("PASS search and cross-instance switching, including OS window focus")
+
+            rc("focus-window", "--match", f"id:{shell_id}")
+            rc("kitten", "--match", f"id:{shell_id}", str(ROOT / "kitty/agents.py"))
+            overlay_id = eventually(
+                lambda: next(
+                    (
+                        w["id"]
+                        for _, _, w in windows()
+                        if w["id"]
+                        not in {first["location"]["window_id"], second_id, shell_id}
+                    ),
+                    None,
+                )
+            )
+            eventually(lambda: "Поиск" in rc("get-text", "--match", f"id:{overlay_id}"))
+            rc("send-key", "--match", f"id:{overlay_id}", "ctrl+t")
+            eventually(
+                lambda: "Unique archived session"
+                in rc("get-text", "--match", f"id:{overlay_id}")
+            )
+            rc("send-text", "--match", f"id:{overlay_id}", "/Unique archived session")
+            eventually(
+                lambda: "Поиск: Unique archived session"
+                in rc("get-text", "--match", f"id:{overlay_id}")
+            )
+            rc("send-key", "--match", f"id:{overlay_id}", "escape")
+            rc("send-text", "--match", f"id:{overlay_id}", "dd")
+            eventually(
+                lambda: "Ничего не найдено"
+                in rc("get-text", "--match", f"id:{overlay_id}")
+            )
+            rc("send-text", "--match", f"id:{overlay_id}", "u")
+            eventually(
+                lambda: "Unique archived session"
+                in rc("get-text", "--match", f"id:{overlay_id}")
+            )
+            rc("send-text", "--match", f"id:{overlay_id}", "dd")
+            eventually(
+                lambda: "Ничего не найдено"
+                in rc("get-text", "--match", f"id:{overlay_id}")
+            )
+            rc("send-key", "--match", f"id:{overlay_id}", "ctrl+t")
+            eventually(
+                lambda: "Unique archived session"
+                in rc("get-text", "--match", f"id:{overlay_id}")
+            )
+            rc("send-text", "--match", f"id:{overlay_id}", "Vd")
+            eventually(
+                lambda: "Ничего не найдено"
+                in rc("get-text", "--match", f"id:{overlay_id}")
+            )
+            rc("send-key", "--match", f"id:{overlay_id}", "ctrl+t")
+            rc("send-key", "--match", f"id:{overlay_id}", "ctrl+t")
+            eventually(
+                lambda: "Unique archived session"
+                in rc("get-text", "--match", f"id:{overlay_id}")
+            )
+            print("PASS immediate dd hide and Vd restore without deleting the session")
+            rc("send-key", "--match", f"id:{overlay_id}", "ctrl+l")
+            rc("send-text", "--match", f"id:{overlay_id}", "/Batch")
+            eventually(
+                lambda: "Batch session 1"
+                in (s := rc("get-text", "--match", f"id:{overlay_id}"))
+                and "Batch session 2" in s
+            )
+            rc("send-key", "--match", f"id:{overlay_id}", "escape")
+            rc("send-text", "--match", f"id:{overlay_id}", "Vjd")
+            eventually(
+                lambda: "Ничего не найдено"
+                in rc("get-text", "--match", f"id:{overlay_id}")
+            )
+            rc("send-text", "--match", f"id:{overlay_id}", "u")
+            eventually(
+                lambda: "Batch session 1"
+                in (s := rc("get-text", "--match", f"id:{overlay_id}"))
+                and "Batch session 2" in s
+            )
+            rc("send-text", "--match", f"id:{overlay_id}", "Vjd")
+            eventually(
+                lambda: "Ничего не найдено"
+                in rc("get-text", "--match", f"id:{overlay_id}")
+            )
+            rc("send-key", "--match", f"id:{overlay_id}", "ctrl+t")
+            eventually(
+                lambda: "Batch session 1"
+                in (s := rc("get-text", "--match", f"id:{overlay_id}"))
+                and "Batch session 2" in s
+            )
+            rc("send-text", "--match", f"id:{overlay_id}", "Vjd")
+            eventually(
+                lambda: "Ничего не найдено"
+                in rc("get-text", "--match", f"id:{overlay_id}")
+            )
+            rc("send-key", "--match", f"id:{overlay_id}", "ctrl+t")
+            rc("send-key", "--match", f"id:{overlay_id}", "ctrl+t")
+            rc("send-key", "--match", f"id:{overlay_id}", "ctrl+l")
+            rc("send-text", "--match", f"id:{overlay_id}", "/Unique archived session")
+            eventually(
+                lambda: "Unique archived session"
+                in rc("get-text", "--match", f"id:{overlay_id}")
+            )
+            print(
+                "PASS u undoes single and batch hide; V + j + d restores two sessions"
+            )
+            rc("send-key", "--match", f"id:{overlay_id}", "enter")
+            eventually(lambda: not any(w["id"] == overlay_id for _, _, w in windows()))
+            eventually(
+                lambda: any(
+                    any(
+                        str(history_file.resolve()) in arg
+                        for arg in p.get("cmdline", [])
+                    )
+                    for _, _, w in windows()
+                    for p in w.get("foreground_processes", [])
+                ),
+                timeout=15,
+            )
+            print(
+                "PASS Ctrl+T displays history and opens the saved session in a new kitty tab"
+            )
+            if env.get("PI_KITTY_LANG") == "en":
+                assert {"Search", "Idle", "tab", "No matches found"} <= english_seen
+                print(
+                    "PASS English overlay labels, status and history/search workflows"
+                )
         except Exception:
             logfile.flush()
             logfile.seek(0)

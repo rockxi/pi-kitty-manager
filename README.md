@@ -45,7 +45,7 @@ The current terminal interface is in Russian. The following example illustrates 
    Working          Registration form      [tab 4 · pane 8]
    Idle             Responsive layout      [tab 5 · pane 9]
 
- ↑↓ select   Enter switch   Esc close   Ctrl+U clear   Ctrl+R refresh
+ ↑↓ select   Ctrl+D/U half-page   Enter switch   Esc close
 ```
 
 ### At a glance
@@ -54,8 +54,9 @@ The current terminal interface is in Russian. The following example illustrates 
 - **Folders and conversations.** Agents are grouped by working directory, with their pi session names displayed.
 - **Live status.** See which agents are working or idle; status is indicated by both text and color.
 - **Search and switch.** Search by folder, conversation name, model, or tab. Press Enter to focus the pane.
+- **Saved history.** Cycle active, history and hidden views with `Ctrl+T`; select a closed session to resume it in a new kitty tab.
 - **Starts with kitty.** The daemon starts in the background without an extra tab; multiple windows reuse the same daemon.
-- **Local by design.** No web server, TCP listener, conversation collection, or model requests.
+- **Local by design.** No web server, TCP listener, or model requests. History is read locally; the first user message may be shown for unnamed sessions.
 
 ## Installation
 
@@ -129,17 +130,35 @@ Open several pi agents in kitty and press **Ctrl+Shift+P**. Alternatively, run t
 
 The [detailed installation guide](docs/installation.md) covers an optional LaunchAgent, advanced configuration, and removal; it is currently in Russian.
 
+## Interface language
+
+The default is Russian for compatibility with existing installations. To use English, add this **top-level** setting to `~/.config/pi-kitty/config.toml` (or `$XDG_CONFIG_HOME/pi-kitty/config.toml`):
+
+```toml
+language = "en" # use "ru" for Russian
+```
+
+Create the `pi-kitty` configuration directory if needed. Place `language` before any `[kitty]` section; preserve existing settings. Reopen the panel to apply it. Alternatively set `PI_KITTY_LANG=en` in the kitty process environment; the environment variable overrides the config. The CLI uses the same setting.
+
 ## Usage
 
 | Action | Key |
 | --- | --- |
 | Open the list | `Ctrl+Shift+P`, or your configured kitty shortcut |
-| Find an agent | Start typing a conversation name, folder, or model |
-| Select | `↑` / `↓` or `Tab` / `Shift+Tab` |
+| Find an agent | Press `/` and type a conversation name, folder, or model; `Esc` leaves search |
+| Select | `j` / `k`, `↑` / `↓`, or `Tab` / `Shift+Tab` |
 | Switch | `Enter` |
 | Close without switching | `Esc` |
-| Clear search | `Ctrl+U` |
+| Move half a page down / up | `Ctrl+D` / `Ctrl+U` |
+| Clear search | `Ctrl+L` |
+| Cycle active / history / hidden views | `Ctrl+T` |
+| Hide or restore one closed session | `dd` |
+| Select and hide or restore a range of closed sessions | `V`, move with `j` / `k`, then `d` |
+| Cancel visual selection | `Esc` |
+| Undo hiding or restoring | `u` (while the panel remains open) |
 | Refresh | `Ctrl+R` |
+
+Hidden sessions are not deleted: their file paths are stored locally in `~/.config/pi-kitty/hidden-sessions.json` (or `$XDG_CONFIG_HOME/pi-kitty/hidden-sessions.json`). In the hidden view, `dd` or `V` → `d` restores them. Active chats are never included in the selection. Press `u` repeatedly to undo up to 100 visibility changes in the current panel session; the undo history is cleared when the panel closes. Search starts only with `/`; while searching, `d`, `j`, `k`, and `u` are ordinary characters.
 
 Set a **conversation name** in pi itself:
 
@@ -147,16 +166,16 @@ Set a **conversation name** in pi itself:
 /name Fix authentication
 ```
 
-Or start a session with `pi --name "Fix authentication"`. If a session has no name, the manager shows «Без названия» (unnamed); it does not generate a title automatically.
+Or start a session with `pi --name "Fix authentication"`. If a session has no name, the manager shows its first message when available, otherwise “Untitled”; it does not generate a title automatically.
 
 ## Troubleshooting
 
-The UI messages below are currently in Russian:
+With `language = "en"`, the panel uses English labels:
 
 | What you see | What to do |
 | --- | --- |
-| «Без расширения pi» / «Неизвестно» (no pi extension / unknown) | Make sure the pi extension is installed and run `/reload` in that pi process. Without the extension, process discovery is limited. |
-| «Без названия» (unnamed) | Name the session in pi with `/name …`. |
+| “Without pi extension” / “Unknown” | Make sure the pi extension is installed and run `/reload` in that pi process. Without the extension, process discovery is limited. |
+| “Untitled” | Name the session in pi with `/name …`. |
 | Daemon unavailable | Run `./bin/pi-kitty daemon ensure`, then `./bin/pi-kitty doctor`. Check the `watcher` line in kitty.conf. |
 | No available kitty instances / «Нет панели» (no pane) | Check `listen_on`, Remote Control, and whether kitty was restarted after changing its socket. |
 | Shortcut does not work | Check the absolute path, shortcut conflicts, and whether kitty.conf was loaded. |
@@ -177,6 +196,8 @@ The daemon keeps an in-memory registry of active agents and checks their process
 ## Compatibility
 
 The first target platform is **macOS**, tested with kitty 0.45.0 and pi 1.4.0. Linux has basic path and Unix-socket support, but has not yet been fully live-tested.
+
+Saved history is read locally from pi's default session directory and, when set, `PI_CODING_AGENT_SESSION_DIR`. Additional directories can be supplied via the `PI_KITTY_SESSION_DIRS` environment variable (separated by `:` on macOS/Linux). Sessions without a saved file (`--no-session`) cannot be resumed. If an older pi extension has not been reloaded, matching an open session is best-effort.
 
 SSH and internal tmux/screen panes are not supported. Without the extension, discovery of arbitrary wrappers and background processes is not guaranteed, and accurate statuses and names are unavailable. Switching to other macOS Spaces and minimized windows has not been separately verified. The [implementation status](docs/implementation-status.md) provides further details in Russian.
 

@@ -7,6 +7,7 @@ from pathlib import Path
 import unicodedata
 
 from .common import clean
+from .i18n import tr
 
 
 def clip(text: str, width: int) -> str:
@@ -32,7 +33,10 @@ def short_path(path: str) -> str:
 
 
 def grouped(
-    agents: list[dict], query: str = "", order: dict[str, int] | None = None
+    agents: list[dict],
+    query: str = "",
+    order: dict[str, int] | None = None,
+    lang: str | None = None,
 ) -> list[tuple[str, object]]:
     groups = defaultdict(list)
     tokens = query.casefold().split()
@@ -49,12 +53,13 @@ def grouped(
             for x in (
                 agent.get("cwd"),
                 agent.get("session_name"),
+                agent.get("preview"),
                 model.get("id"),
                 location.get("tab_title"),
             )
         ).casefold()
         if all(token in haystack for token in tokens):
-            groups[agent.get("cwd") or "Папка неизвестна"].append(agent)
+            groups[agent.get("cwd") or tr("Папка неизвестна", lang)].append(agent)
     rows = []
     for folder in sorted(groups, key=str.casefold):
         rows.append(("folder", folder))
@@ -67,13 +72,58 @@ def grouped(
     return rows
 
 
-def status(agent: dict) -> tuple[str, int]:
+def visual_selection(
+    choices: list[dict], anchor: str | None, selected: str | None
+) -> set[str]:
+    """Select only saved sessions in the inclusive, currently visible range."""
+    ids = [item["agent_id"] for item in choices]
+    if anchor not in ids or selected not in ids:
+        return set()
+    start, end = sorted((ids.index(anchor), ids.index(selected)))
+    return {
+        item["agent_id"]
+        for item in choices[start : end + 1]
+        if item.get("source") == "history"
+    }
+
+
+def half_page_target(
+    rows: list[tuple[str, object]], selected: str | None, height: int, direction: int
+) -> str | None:
+    """Move by half a viewport in display rows, skipping folder headers and clamping at ends."""
+    selectable = [
+        (index, value["agent_id"])
+        for index, (kind, value) in enumerate(rows)
+        if kind == "agent"
+    ]
+    if not selectable:
+        return None
+    current = next(
+        (i for i, (_, agent_id) in enumerate(selectable) if agent_id == selected), 0
+    )
+    target = selectable[current][0] + (1 if direction > 0 else -1) * max(1, height // 2)
+    if direction > 0:
+        return next(
+            (agent_id for row, agent_id in selectable if row >= target),
+            selectable[-1][1],
+        )
+    return next(
+        (agent_id for row, agent_id in reversed(selectable) if row <= target),
+        selectable[0][1],
+    )
+
+
+def status(agent: dict, lang: str | None = None) -> tuple[str, int]:
+    if agent.get("source") == "history":
+        return tr("История", lang), 4
     if agent.get("presence") != "online":
-        return "Нет связи", 3
+        return tr("Нет связи", lang), 3
     if agent.get("location_status") != "verified":
-        return "Нет панели", 3
+        return tr("Нет панели", lang), 3
     if agent.get("activity") == "busy":
-        return "Работает" + (" / tools" if agent.get("phase") == "tools" else ""), 2
+        return tr("Работает", lang) + (
+            " / tools" if agent.get("phase") == "tools" else ""
+        ), 2
     if agent.get("activity") == "idle":
-        return "Свободен", 1
-    return "Неизвестно", 3
+        return tr("Свободен", lang), 1
+    return tr("Неизвестно", lang), 3

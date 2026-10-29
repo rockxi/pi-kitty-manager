@@ -51,7 +51,7 @@ test('extension publishes metadata, parallel tool state, reload identity and rec
   let idle = true, name = 'Настоящий диалог';
   const ctx = {cwd: '/work/backend', mode: 'tui', isIdle: () => idle,
     model: {provider: 'test', id: 'model'},
-    sessionManager: {getSessionId: () => 'session-a', getSessionName: () => name}};
+    sessionManager: {getSessionId: () => 'session-a', getSessionFile: () => '/sessions/session-a.jsonl', getSessionName: () => name}};
   const latest = () => messages.filter(m => m.method !== 'agent.unregister').at(-1)?.params;
   try {
     const extension = await jiti.import(path.join(__dirname, '../pi-extension/index.ts'), {default: true});
@@ -64,6 +64,7 @@ test('extension publishes metadata, parallel tool state, reload identity and rec
     assert.equal(first.pid, process.pid);
     assert.equal(first.cwd, '/work/backend');
     assert.equal(first.session_id, 'session-a');
+    assert.equal(first.session_file, '/sessions/session-a.jsonl');
     idle = false;
     handlers.get('before_agent_start')({}, ctx);
     handlers.get('tool_execution_start')({toolCallId: 'a'}, ctx);

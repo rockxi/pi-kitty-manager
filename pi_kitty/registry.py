@@ -107,6 +107,7 @@ class Registry:
             "process_started_at": proc.started,
             "cwd": clean(params.get("cwd")),
             "session_id": clean(params.get("session_id"), 128) or None,
+            "session_file": clean(params.get("session_file"), 2048) or None,
             "session_name": clean(params.get("session_name"), 256) or None,
             "mode": mode,
             "model": {

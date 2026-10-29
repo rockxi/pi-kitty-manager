@@ -7,7 +7,7 @@ from pi_kitty.common import Error, MAX_LINE, clean, encode, secure_dir
 from pi_kitty.kitty import contains_process
 from pi_kitty.processes import Process, is_descendant, is_pi, parse_processes
 from pi_kitty.registry import Registry
-from pi_kitty.view import clip, grouped, status
+from pi_kitty.view import clip, grouped, half_page_target, status
 
 
 def params(**overrides):
@@ -241,6 +241,26 @@ class ViewTests(unittest.TestCase):
         self.assertEqual(
             status(self.agent("/a", "a", presence="stale"))[0], "Нет связи"
         )
+
+
+class HalfPageTests(unittest.TestCase):
+    def test_skips_folder_headers_and_clamps(self):
+        rows = [
+            ("folder", "/a"),
+            ("agent", {"agent_id": "a"}),
+            ("agent", {"agent_id": "b"}),
+            ("folder", "/b"),
+            ("agent", {"agent_id": "c"}),
+            ("agent", {"agent_id": "d"}),
+            ("folder", "/c"),
+            ("agent", {"agent_id": "e"}),
+        ]
+        self.assertEqual(half_page_target(rows, "a", 6, 1), "c")
+        self.assertEqual(half_page_target(rows, "c", 6, -1), "a")
+        self.assertEqual(half_page_target(rows, "d", 20, 1), "e")
+        self.assertEqual(half_page_target(rows, "b", 20, -1), "a")
+        self.assertEqual(half_page_target(rows, "a", 1, 1), "b")
+        self.assertIsNone(half_page_target([], None, 10, 1))
 
 
 class SecurityTests(unittest.TestCase):

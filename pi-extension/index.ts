@@ -65,6 +65,7 @@ class Reporter {
       agent_id: this.agentId, generation: this.generation, seq: ++this.seq,
       pid: process.pid, cwd: ctx.cwd, mode: ctx.mode,
       session_id: ctx.sessionManager.getSessionId(),
+      session_file: ctx.sessionManager.getSessionFile() || null,
       session_name: ctx.sessionManager.getSessionName() || null,
       model: ctx.model ? {provider: ctx.model.provider, id: ctx.model.id} : null,
       activity: busy ? "busy" : "idle",
