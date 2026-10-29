@@ -19,6 +19,16 @@ Switch between conversations instead of hunting through terminal tabs.
 
 ---
 
+### Install with a pi agent
+
+Copy and send this to your pi agent:
+
+```text
+Please install and configure https://github.com/rockxi/pi-kitty-manager for me. Follow the repository's installation instructions and explain any changes you make.
+```
+
+---
+
 Run [pi](https://github.com/earendil-works/pi) agents in different [kitty](https://sw.kovidgoyal.net/kitty/) tabs and panes. Press a keyboard shortcut, find a conversation, and jump straight to it — even if it is in another kitty window.
 
 The current terminal interface is in Russian. The following example illustrates its layout; actual labels are shown in Russian:
