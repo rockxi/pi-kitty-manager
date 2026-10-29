@@ -2,169 +2,175 @@
 
 # pi-kitty-manager
 
-**Все ваши pi-агенты — в одном списке.**
+**All your pi agents in one place.**
 
-Переключайтесь между диалогами, а не перебирайте вкладки терминала.
+Switch between conversations instead of hunting through terminal tabs.
 
 [![GitHub stars](https://img.shields.io/github/stars/rockxi/pi-kitty-manager?style=flat-square&label=stars&color=E9B86C)](https://github.com/rockxi/pi-kitty-manager/stargazers)
 [![GitHub last commit](https://img.shields.io/github/last-commit/rockxi/pi-kitty-manager?style=flat-square&color=8BCABF)](https://github.com/rockxi/pi-kitty-manager/commits)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-8BCABF?style=flat-square)](https://www.python.org/)
-[![Platform](https://img.shields.io/badge/проверено-macOS-8BCABF?style=flat-square)](#совместимость)
+[![Platform](https://img.shields.io/badge/tested-macOS-8BCABF?style=flat-square)](#compatibility)
 
-[Установка](#установка) · [Как пользоваться](#как-пользоваться) · [Диагностика](#диагностика) · [Как это работает](#как-это-работает)
+**English** · [Русский](README.ru.md)
+
+[Installation](#installation) · [Usage](#usage) · [Troubleshooting](#troubleshooting) · [How it works](#how-it-works)
 
 </div>
 
 ---
 
-Запускайте [pi](https://github.com/earendil-works/pi) в разных вкладках и панелях [kitty](https://sw.kovidgoyal.net/kitty/). Нажмите горячую клавишу, найдите нужный диалог и перейдите к нему — даже если он находится в другом окне kitty.
+Run [pi](https://github.com/earendil-works/pi) agents in different [kitty](https://sw.kovidgoyal.net/kitty/) tabs and panes. Press a keyboard shortcut, find a conversation, and jump straight to it — even if it is in another kitty window.
+
+The current terminal interface is in Russian. The following example illustrates its layout; actual labels are shown in Russian:
 
 ```text
- Pi agents  ·  4 агента  ·  2 работают
- Поиск: _
+ Pi agents  ·  4 agents  ·  2 working
+ Search: _
 
  ~/projects/backend
- › Работает / tools  Исправление авторизации    [вкладка 2 · панель 5]
-   Свободен          Рефакторинг API            [вкладка 3 · панель 7]
+ › Working / tools  Fix authentication    [tab 2 · pane 5]
+   Idle             Refactor API           [tab 3 · pane 7]
 
  ~/projects/frontend
-   Работает          Форма регистрации          [вкладка 4 · панель 8]
-   Свободен          Проверка адаптивности       [вкладка 5 · панель 9]
+   Working          Registration form      [tab 4 · pane 8]
+   Idle             Responsive layout      [tab 5 · pane 9]
 
- ↑↓ выбрать   Enter перейти   Esc закрыть   Ctrl+U очистить   Ctrl+R обновить
+ ↑↓ select   Enter switch   Esc close   Ctrl+U clear   Ctrl+R refresh
 ```
 
-### Главное
+### At a glance
 
-- **Только pi-агенты.** Shell-вкладки и другие программы не засоряют список.
-- **Папки и диалоги.** Агенты сгруппированы по рабочим папкам; показывается название сессии pi.
-- **Статусы.** Видно, кто работает и кто свободен; статус обозначается текстом и цветом.
-- **Поиск и переключение.** Ищите по папке, названию диалога, модели или вкладке. Enter открывает нужную панель.
-- **Автозапуск с kitty.** Даемон запускается в фоне без дополнительной вкладки; второй экземпляр не создаётся.
-- **Локальная работа.** Нет веб-сервера, TCP-порта, сбора переписки или запросов к модели.
+- **Only pi agents.** Shell tabs and other programs do not clutter the list.
+- **Folders and conversations.** Agents are grouped by working directory, with their pi session names displayed.
+- **Live status.** See which agents are working or idle; status is indicated by both text and color.
+- **Search and switch.** Search by folder, conversation name, model, or tab. Press Enter to focus the pane.
+- **Starts with kitty.** The daemon starts in the background without an extra tab; multiple windows reuse the same daemon.
+- **Local by design.** No web server, TCP listener, conversation collection, or model requests.
 
-## Установка
+## Installation
 
-### Требования
+### Requirements
 
-- macOS, [kitty](https://sw.kovidgoyal.net/kitty/) и [pi](https://github.com/earendil-works/pi).
-- Python **3.11+** для CLI и ручного запуска. Даемон и интерфейс не требуют сторонних Python-библиотек.
-- Проверено на kitty **0.45.0** и pi **1.4.0**. Подробнее: [совместимость](#совместимость).
+- macOS, [kitty](https://sw.kovidgoyal.net/kitty/), and [pi](https://github.com/earendil-works/pi).
+- Python **3.11+** for the CLI and manual startup. The daemon and interface have no third-party Python runtime dependencies.
+- Tested with kitty **0.45.0** and pi **1.4.0**. See [Compatibility](#compatibility).
 
-### 1. Скачайте репозиторий
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/rockxi/pi-kitty-manager.git ~/pi-kitty-manager
 cd ~/pi-kitty-manager
 ```
 
-Расположение можно выбрать другое, но после настройки не перемещайте каталог: kitty и pi используют абсолютные пути к файлам проекта.
+You can choose another location, but keep the repository there after installation: kitty and pi use absolute paths to its files.
 
-### 2. Установите расширение pi
+### 2. Install the pi extension
 
 ```bash
 pi install "$(pwd)/pi-extension"
 ```
 
-Для каждого **уже открытого** pi выполните `/reload`. Новые экземпляры загрузят расширение автоматически. Именно оно передаёт точные статусы и названия диалогов.
+Run `/reload` in each **already running** pi session. New instances will load the extension automatically. The extension provides accurate activity statuses and conversation names.
 
-### 3. Настройте kitty
+### 3. Configure kitty
 
-Откройте `~/.config/kitty/kitty.conf` и добавьте строки, подставив **абсолютный путь к клону**:
+Open `~/.config/kitty/kitty.conf` and add these lines, replacing the placeholder with the **absolute path to your clone**:
 
 ```conf
 watcher /ABSOLUTE/PATH/pi-kitty-manager/kitty/autostart.py
 map ctrl+shift+p kitten /ABSOLUTE/PATH/pi-kitty-manager/kitty/agents.py
 ```
 
-Чтобы получить строки с вашим фактическим путём, из корня репозитория выполните:
+To generate the lines with your actual path, run this from the repository root:
 
 ```bash
 printf 'watcher "%s/kitty/autostart.py"\nmap ctrl+shift+p kitten "%s/kitty/agents.py"\n' "$(pwd -P)" "$(pwd -P)"
 ```
 
-Скопируйте вывод в `kitty.conf`. При необходимости выберите другую свободную комбинацию вместо `ctrl+shift+p`.
+Copy the output into `kitty.conf`. You can choose a different, unused shortcut instead of `ctrl+shift+p`.
 
-**Нужен kitty Remote Control через локальный Unix-сокет.** Если он уже настроен, существующую конфигурацию менять не нужно. Для новой настройки на macOS:
+**Kitty Remote Control over a local Unix socket is required.** If it is already configured, you do not need to change your existing setup. For a new configuration on macOS:
 
 ```bash
 mkdir -p "$HOME/Library/Caches/pi-kitty/run"
 chmod 700 "$HOME/Library/Caches/pi-kitty/run"
 ```
 
-Добавьте в `kitty.conf`:
+Add to `kitty.conf`:
 
 ```conf
 allow_remote_control socket-only
 listen_on unix:${HOME}/Library/Caches/pi-kitty/run/kitty-{kitty_pid}.sock
 ```
 
-> **Безопасность:** `socket-only` разрешает все команды kitty Remote Control через сокет, а не только переключение. Приватный каталог ограничивает доступ других пользователей, но не изолирует процессы с тем же UID. Сам менеджер использует `ls` и `focus-window`. Не заменяйте существующие настройки, не проверив, какие ещё инструменты от них зависят.
+> **Security:** `socket-only` allows all kitty Remote Control commands over the socket, not just focus commands. The private directory restricts access by other users, but does not isolate processes running under your own UID. The manager itself uses `ls` and `focus-window`. Do not replace an existing configuration without checking whether other tools depend on it.
 
-После изменения `listen_on` **перезапустите kitty** — обычной перезагрузки конфигурации недостаточно. При следующем старте watcher автоматически поднимет даемон.
+After changing `listen_on`, **restart kitty** — reloading its configuration is not enough. The watcher will start the daemon automatically when kitty starts.
 
-### 4. Проверьте
+### 4. Check the installation
 
-В kitty откройте несколько pi-агентов и нажмите **Ctrl+Shift+P**. Или выполните из каталога репозитория:
+Open several pi agents in kitty and press **Ctrl+Shift+P**. Alternatively, run the following from the repository directory:
 
 ```bash
-./bin/pi-kitty daemon ensure  # запуск для уже открытого kitty, если нужно
+./bin/pi-kitty daemon ensure  # start the daemon for an already open kitty, if needed
 ./bin/pi-kitty doctor
 ./bin/pi-kitty list
 ```
 
-Подробные инструкции, альтернативный LaunchAgent и удаление: **[docs/installation.md](docs/installation.md)**.
+The [detailed installation guide](docs/installation.md) covers an optional LaunchAgent, advanced configuration, and removal; it is currently in Russian.
 
-## Как пользоваться
+## Usage
 
-| Действие | Клавиша |
+| Action | Key |
 | --- | --- |
-| Открыть список | `Ctrl+Shift+P` — или ваша привязка в kitty |
-| Найти агента | Начните печатать название диалога, папку или модель |
-| Выбрать | `↑` / `↓` или `Tab` / `Shift+Tab` |
-| Перейти | `Enter` |
-| Закрыть без перехода | `Esc` |
-| Очистить поиск | `Ctrl+U` |
-| Обновить список | `Ctrl+R` |
+| Open the list | `Ctrl+Shift+P`, or your configured kitty shortcut |
+| Find an agent | Start typing a conversation name, folder, or model |
+| Select | `↑` / `↓` or `Tab` / `Shift+Tab` |
+| Switch | `Enter` |
+| Close without switching | `Esc` |
+| Clear search | `Ctrl+U` |
+| Refresh | `Ctrl+R` |
 
-**Название диалога** задаётся в самом pi:
+Set a **conversation name** in pi itself:
 
 ```text
-/name Исправление авторизации
+/name Fix authentication
 ```
 
-Или при запуске: `pi --name "Исправление авторизации"`. Если сессия не названа, менеджер покажет «Без названия» — автоматически заголовок не генерируется.
+Or start a session with `pi --name "Fix authentication"`. If a session has no name, the manager shows «Без названия» (unnamed); it does not generate a title automatically.
 
-## Диагностика
+## Troubleshooting
 
-| Что видно | Что сделать |
+The UI messages below are currently in Russian:
+
+| What you see | What to do |
 | --- | --- |
-| «Без расширения pi» / «Неизвестно» | Убедитесь, что расширение установлено, и выполните `/reload` в этом pi. Без расширения доступно только ограниченное обнаружение процессов. |
-| «Без названия» | Задайте имя в pi командой `/name …`. |
-| Даемон недоступен | Выполните `./bin/pi-kitty daemon ensure`, затем `./bin/pi-kitty doctor`. Проверьте строку `watcher` в kitty.conf. |
-| Нет доступных kitty / «Нет панели» | Проверьте `listen_on`, Remote Control и перезапуск kitty после изменения сокета. |
-| Горячая клавиша не работает | Проверьте абсолютный путь, конфликт сочетаний и загрузку kitty.conf. |
+| «Без расширения pi» / «Неизвестно» (no pi extension / unknown) | Make sure the pi extension is installed and run `/reload` in that pi process. Without the extension, process discovery is limited. |
+| «Без названия» (unnamed) | Name the session in pi with `/name …`. |
+| Daemon unavailable | Run `./bin/pi-kitty daemon ensure`, then `./bin/pi-kitty doctor`. Check the `watcher` line in kitty.conf. |
+| No available kitty instances / «Нет панели» (no pane) | Check `listen_on`, Remote Control, and whether kitty was restarted after changing its socket. |
+| Shortcut does not work | Check the absolute path, shortcut conflicts, and whether kitty.conf was loaded. |
 
-Другие сценарии и настройка: [документация по установке](docs/installation.md#7-диагностика).
+For more scenarios and configuration details, see the [installation guide in Russian](docs/installation.md#7-диагностика).
 
-## Как это работает
+## How it works
 
 ```text
-pi + расширение ── состояние и имя ──┐
-                                    ├── Unix socket ── daemon ── kitty Remote Control
-kitty watcher ── автозапуск ────────┘                    │
-                                                  kitten: список и поиск
+pi + extension ── status and name ──┐
+                                   ├── Unix socket ── daemon ── kitty Remote Control
+kitty watcher ── automatic start ───┘                    │
+                                                 kitten: list and search
 ```
 
-Даемон хранит активный реестр в памяти, проверяет процессы и расположение панелей. Расширение pi сообщает состояние и имя текущей сессии. Kitten открывает список поверх терминала и после закрытия переводит фокус на выбранную панель.
+The daemon keeps an in-memory registry of active agents and checks their processes and pane locations. The pi extension reports activity and the current session name. The kitten opens a list over the terminal and focuses the selected pane after the overlay closes.
 
-## Совместимость
+## Compatibility
 
-Первая целевая платформа — **macOS**; проверены kitty 0.45.0 и pi 1.4.0. Linux имеет базовую поддержку путей и Unix-сокетов, но полноценный live-тест на Linux пока не проводился.
+The first target platform is **macOS**, tested with kitty 0.45.0 and pi 1.4.0. Linux has basic path and Unix-socket support, but has not yet been fully live-tested.
 
-SSH и внутренние панели tmux/screen не поддерживаются. Без расширения не гарантируется обнаружение произвольных обёрток и фоновых процессов, а точные статусы и имена недоступны. Переключение в другие macOS Spaces и свёрнутые окна отдельно не проверялось. Подробности: [статус реализации](docs/implementation-status.md).
+SSH and internal tmux/screen panes are not supported. Without the extension, discovery of arbitrary wrappers and background processes is not guaranteed, and accurate statuses and names are unavailable. Switching to other macOS Spaces and minimized windows has not been separately verified. The [implementation status](docs/implementation-status.md) provides further details in Russian.
 
-## Разработка и тесты
+## Development and tests
 
 ```bash
 python3 -m unittest discover -s tests -v
@@ -172,13 +178,13 @@ node --test tests/extension.test.cjs
 node scripts/check-extension-types.cjs
 ```
 
-Node-проверки используют установленный npm-пакет pi; для type-check нужен `tsc`. `PI_PACKAGE_ROOT` позволяет указать нестандартное расположение pi.
+The Node checks use the installed npm package of pi; type-checking also requires `tsc`. Set `PI_PACKAGE_ROOT` if pi is installed in a non-standard location.
 
-Опциональные GUI-тесты создают **отдельные временные окна kitty**, не меняют настройки и не обращаются к модели:
+The optional GUI tests create **separate temporary kitty windows**, do not change your configuration, and do not call a model:
 
 ```bash
 python3 tests/live_smoke.py
 python3 tests/live_autostart.py
 ```
 
-[Технический проект](docs/technical-design.md) · [Статус реализации](docs/implementation-status.md) · [Сообщить об ошибке](https://github.com/rockxi/pi-kitty-manager/issues)
+[Technical design (Russian)](docs/technical-design.md) · [Implementation status (Russian)](docs/implementation-status.md) · [Report an issue](https://github.com/rockxi/pi-kitty-manager/issues)
