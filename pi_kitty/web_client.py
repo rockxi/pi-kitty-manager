@@ -157,6 +157,7 @@ def launch_agent(cwd, endpoint, server, token_path, chat):
     args = [
         "launch",
         "--type=tab",
+        "--keep-focus",
         "--cwd=" + cwd,
         "--env=PI_KITTY_WEB_SERVER=" + server,
         "--env=PI_KITTY_WEB_TOKEN_FILE=" + str(Path(token_path).resolve()),
