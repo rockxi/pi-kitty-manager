@@ -258,11 +258,53 @@ $('#rename-ack').addEventListener('click', async () => {
 });
 let currentChat = null;
 let chatGeneration = null;
+let chatSession = null;
+let chatImageSupported = false;
+let chatReading = false;
+let chatSending = false;
+let chatAttachments = [];
+const IMAGE_LIMIT = 4 * 1024 * 1024;
+function renderAttachments() {
+  const container = $('#chat-attachments'); container.replaceChildren();
+  chatAttachments.forEach((image, index) => {
+    const item = make('div', 'chat-attachment');
+    const preview = document.createElement('img'); preview.src = `data:${image.mimeType};base64,${image.data}`; preview.alt = image.name;
+    const remove = make('button', 'attachment-remove', '×'); remove.type = 'button'; remove.setAttribute('aria-label', `Удалить ${image.name}`);
+    remove.addEventListener('click', () => { chatAttachments.splice(index, 1); renderAttachments(); });
+    item.append(preview, remove); container.append(item);
+  });
+}
+async function addImages(files) {
+  if (chatReading || !chatImageSupported) return;
+  const selected = Array.from(files); const target = currentChat; const session = chatSession;
+  if (!selected.length) return;
+  if (selected.some(file => !['image/png','image/jpeg','image/webp'].includes(file.type)) || selected.length + chatAttachments.length > 3 || selected.reduce((sum,file) => sum+file.size,0) + chatAttachments.reduce((sum,image) => sum+image.size,0) > IMAGE_LIMIT) {
+    $('#chat-error').textContent = 'Можно добавить до 3 изображений PNG, JPEG или WebP общим размером до 4 МБ.'; return;
+  }
+  chatReading = true; $('#chat-send').disabled = true; $('#chat-attach').disabled = true; $('#chat-error').textContent = '';
+  try {
+    const images = await Promise.all(selected.map(file => new Promise((resolve,reject) => {
+      const reader = new FileReader(); reader.onerror = () => reject(new Error('Не удалось прочитать изображение.'));
+      reader.onload = () => resolve({type:'image',mimeType:file.type,data:String(reader.result).split(',')[1],name:file.name || 'Изображение',size:file.size}); reader.readAsDataURL(file);
+    })));
+    if (target !== currentChat || session !== chatSession) return;
+    chatAttachments.push(...images); renderAttachments();
+  } catch (error) { if (target === currentChat) $('#chat-error').textContent = error.message; }
+  finally { chatReading = false; if (target === currentChat) refreshChat(); }
+}
+function markdownContent(text) {
+  const content = make('div', 'markdown');
+  if (!window.marked || !window.DOMPurify) { content.textContent = text; return content; }
+  const raw = marked.parse(text, {gfm:true, breaks:false});
+  content.innerHTML = DOMPurify.sanitize(raw, {ALLOWED_TAGS:['p','br','strong','em','del','code','pre','blockquote','ul','ol','li','a','h1','h2','h3','h4','h5','h6','hr','table','thead','tbody','tr','th','td'], ALLOWED_ATTR:['href','title'], ALLOWED_URI_REGEXP:/^https?:\/\//i});
+  content.querySelectorAll('a').forEach(link => { link.target = '_blank'; link.rel = 'noopener noreferrer'; });
+  return content;
+}
 let chatMessages = '';
 let chatPolling = false;
 function openChat(machine, agent) {
   currentChat = {machine: machine.id, agent: agent.agent_id};
-  chatGeneration = null;
+  chatGeneration = null; chatSession = null; chatImageSupported = false; chatAttachments = []; renderAttachments();
   chatMessages = '';
   $('#chat-title').textContent = agent.session_name || 'Без названия';
   $('#chat-computer').textContent = machine.name;
@@ -282,10 +324,15 @@ async function refreshChat() {
     if (!response.ok) throw new Error('Не удалось загрузить диалог.');
     const data = await response.json();
     if (selectedChat !== currentChat) return;
-    chatGeneration = data.generation;
+    if (chatSession && data.session !== chatSession && chatAttachments.length) {
+      chatAttachments = []; renderAttachments(); $('#chat-error').textContent = 'Сессия изменилась. Прикрепите изображения заново.';
+    }
+    chatGeneration = data.generation; chatSession = data.session; chatImageSupported = data.image_supported === true;
     const delivery = data.delivery?.state;
     $('#chat-status').textContent = !data.available ? 'Диалог недоступен. Включите веб-чат в kitty и перезапустите pi.' : data.pending ? 'Сообщение ожидает передачи…' : delivery === 'unconfirmed' ? 'Передача не подтверждена. Не отправляйте повторно, пока не проверите диалог.' : delivery === 'rejected' ? 'Агент не принял сообщение. Проверьте его состояние.' : delivery === 'expired' ? 'Время доставки истекло. Сообщение не передано.' : data.busy ? 'Агент работает…' : delivery === 'accepted' ? 'Сообщение принято агентом.' : 'Агент готов';
-    $('#chat-send').disabled = !data.available || data.busy || data.pending || delivery === 'unconfirmed';
+    $('#chat-send').disabled = !data.available || data.busy || data.pending || delivery === 'unconfirmed' || chatReading || chatSending;
+    $('#chat-attach').disabled = !data.available || !chatImageSupported || chatReading || chatSending;
+    $('#chat-attach').title = chatImageSupported ? 'Прикрепить изображение' : 'Для изображений обновите расширение и выполните /reload в pi.';
     const serialized = JSON.stringify(data.messages);
     if (serialized !== chatMessages) {
       chatMessages = serialized;
@@ -293,28 +340,38 @@ async function refreshChat() {
       if (!data.messages.length) list.append(make('p', 'chat-empty', 'В этой сессии пока нет текстовых сообщений.'));
       for (const message of data.messages) {
         const item = make('div', `chat-message ${message.role}`);
-        item.append(make('strong', '', message.role === 'user' ? 'Вы' : 'Агент'), make('p', '', message.text));
+        item.append(make('strong', '', message.role === 'user' ? 'Вы' : 'Агент'));
+        if (message.text) item.append(message.role === 'assistant' ? markdownContent(message.text) : make('p', '', message.text));
+        if (message.image_count) item.append(make('span', 'chat-image-indicator', `Изображений: ${message.image_count}`));
         list.append(item);
       }
       list.scrollTop = list.scrollHeight;
     }
-    $('#chat-error').textContent = '';
   } catch (error) { $('#chat-error').textContent = error.message || 'Нет связи с сервером.'; }
   finally { chatPolling = false; }
 }
 $('#chat-close').addEventListener('click', () => $('#chat-dialog').close());
-$('#chat-dialog').addEventListener('close', () => { currentChat = null; chatGeneration = null; });
+$('#chat-dialog').addEventListener('close', () => { currentChat = null; chatGeneration = null; chatSession = null; chatAttachments = []; renderAttachments(); $('#chat-image-input').value = ''; });
+$('#chat-attach').addEventListener('click', () => $('#chat-image-input').click());
+$('#chat-image-input').addEventListener('change', event => { addImages(event.target.files); event.target.value = ''; });
+$('#chat-input').addEventListener('paste', event => {
+  const files = Array.from(event.clipboardData?.items || []).filter(item => item.kind === 'file' && item.type.startsWith('image/')).map(item => item.getAsFile()).filter(Boolean);
+  if (files.length) { event.preventDefault(); addImages(files); }
+});
 $('#chat-form').addEventListener('submit', async event => {
   event.preventDefault();
   const input = $('#chat-input'); const message = input.value.trim();
-  if (!message || !currentChat || !chatGeneration) return;
-  $('#chat-send').disabled = true; $('#chat-error').textContent = '';
+  if ((!message && !chatAttachments.length) || !currentChat || !chatGeneration || chatReading || chatSending) return;
+  const target = currentChat; chatSending = true;
+  $('#chat-send').disabled = true; $('#chat-attach').disabled = true; $('#chat-error').textContent = '';
   try {
-    const response = await fetch('/api/send', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({...currentChat, generation: chatGeneration, message})});
-    if (!response.ok) throw new Error(response.status === 409 ? 'Агент занят или сессия изменилась. Обновите диалог.' : 'Не удалось отправить сообщение.');
-    input.value = ''; $('#chat-status').textContent = 'Сообщение ожидает передачи…';
-    await refreshChat();
-  } catch (error) { $('#chat-error').textContent = error.message || 'Нет связи с сервером.'; }
+    const images = chatAttachments.map(({type,mimeType,data}) => ({type,mimeType,data}));
+    const response = await fetch('/api/send', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({...target, generation: chatGeneration, session:chatSession, message, images})});
+    if (!response.ok) throw new Error(response.status === 409 ? 'Агент занят, сессия изменилась или нужно обновить расширение.' : response.status === 413 ? 'Изображения слишком большие.' : 'Не удалось отправить сообщение.');
+    if (target !== currentChat) return;
+    input.value = ''; chatAttachments = []; renderAttachments(); $('#chat-status').textContent = 'Сообщение ожидает передачи…';
+  } catch (error) { if (target === currentChat) $('#chat-error').textContent = error.message || 'Нет связи с сервером. Проверьте диалог перед повтором.'; }
+  finally { chatSending = false; if (target === currentChat) refreshChat(); }
 });
 function showLogin() {
   machines = []; render();

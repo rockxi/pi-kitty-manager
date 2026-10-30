@@ -7,8 +7,11 @@
   <title>Pi Kitty — агенты</title>
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/chat.css">
+  <link rel="stylesheet" href="/chat-markdown.css">
   <link rel="stylesheet" href="/launch.css">
   <link rel="stylesheet" href="/glass.css">
+  <script src="/vendor/marked.umd.js" defer></script>
+  <script src="/vendor/purify.min.js" defer></script>
   <script src="/app.js" defer></script>
   <script src="/glass.js" defer></script>
 </head>
@@ -57,7 +60,7 @@
   </dialog>
   <dialog id="chat-dialog" aria-labelledby="chat-title">
     <div class="chat-header"><div><p class="eyebrow">ДИАЛОГ</p><h2 id="chat-title"></h2><p id="chat-computer"></p></div><button type="button" class="chat-close" id="chat-close" aria-label="Закрыть диалог">×</button></div>
-    <div id="chat-view"><div id="chat-status" role="status"></div><div id="chat-messages" aria-live="polite"></div><form id="chat-form"><label for="chat-input">Сообщение агенту</label><textarea id="chat-input" maxlength="4000" rows="3" placeholder="Напишите сообщение…"></textarea><div class="chat-actions"><span>Ответ появится после завершения сообщения</span><button type="submit" id="chat-send">Отправить</button></div></form></div>
+    <div id="chat-view"><div id="chat-status" role="status"></div><div id="chat-messages" aria-live="polite"></div><form id="chat-form"><label for="chat-input">Сообщение агенту</label><textarea id="chat-input" maxlength="4000" rows="3" placeholder="Напишите сообщение или вставьте картинку…"></textarea><input id="chat-image-input" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden><div id="chat-attachments" class="chat-attachments" aria-label="Прикреплённые изображения"></div><div class="chat-actions"><div class="chat-tools"><button type="button" id="chat-attach" class="open-chat">Прикрепить изображение</button><span>PNG, JPEG, WebP · до 3 файлов, всего 4 МБ</span></div><button type="submit" id="chat-send">Отправить</button></div></form></div>
     <p id="chat-error" role="alert"></p>
   </dialog>
 </body>

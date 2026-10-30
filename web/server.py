@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -35,6 +37,55 @@ CHATS = {}
 RENAMES = {}
 LAUNCHES = {}
 MAX_BYTES = 262144
+MAX_IMAGE_BYTES = 4 * 1024 * 1024
+MAX_IMAGE_REQUEST = 6 * 1024 * 1024
+MAX_CHAT_POLL = 1258291
+
+
+def validate_images(images):
+    if not isinstance(images, list) or len(images) > 3:
+        raise ValueError("Invalid images")
+    total = 0
+    safe = []
+    for image in images:
+        if not isinstance(image, dict) or image.get("type") != "image":
+            raise ValueError("Invalid image")
+        mime, data = image.get("mimeType"), image.get("data")
+        if (
+            mime not in {"image/png", "image/jpeg", "image/webp"}
+            or not isinstance(data, str)
+            or len(data) > MAX_IMAGE_REQUEST
+        ):
+            raise ValueError("Invalid image")
+        try:
+            raw = base64.b64decode(data, validate=True)
+        except (binascii.Error, ValueError):
+            raise ValueError("Invalid image encoding") from None
+        valid = (
+            (mime == "image/png" and raw.startswith(b"\x89PNG\r\n\x1a\n"))
+            or (mime == "image/jpeg" and raw.startswith(b"\xff\xd8\xff"))
+            or (
+                mime == "image/webp"
+                and len(raw) >= 12
+                and raw.startswith(b"RIFF")
+                and raw[8:12] == b"WEBP"
+            )
+        )
+        total += len(raw)
+        if not valid or total > MAX_IMAGE_BYTES:
+            raise ValueError("Invalid image or image too large")
+        safe.append({"type": "image", "mimeType": mime, "data": data})
+    return safe, total
+
+
+def expire_pending_images():
+    # Called with LOCK held. Expired image payloads must not accumulate in memory.
+    now = time.time()
+    for chat in CHATS.values():
+        pending = chat.get("pending")
+        if pending and pending.get("image_bytes") and pending["expires"] <= now:
+            chat["pending"] = None
+            chat["delivery"] = {"id": pending["id"], "state": "expired"}
 
 
 def snapshot():
@@ -197,6 +248,7 @@ class Handler(BaseHTTPRequestHandler):
                     "generation": chat["generation"] if chat else None,
                     "session": chat.get("session") if chat else None,
                     "rename_supported": bool(chat and chat.get("rename_supported")),
+                    "image_supported": bool(chat and chat.get("image_supported")),
                     "rename": rename_status,
                     "messages": chat["messages"] if chat else [],
                     "busy": chat["busy"] if chat else False,
@@ -209,9 +261,18 @@ class Handler(BaseHTTPRequestHandler):
             "/app.js": ("app.js", "text/javascript; charset=utf-8"),
             "/style.css": ("style.css", "text/css; charset=utf-8"),
             "/chat.css": ("chat.css", "text/css; charset=utf-8"),
+            "/chat-markdown.css": ("chat-markdown.css", "text/css; charset=utf-8"),
             "/launch.css": ("launch.css", "text/css; charset=utf-8"),
             "/glass.css": ("glass.css", "text/css; charset=utf-8"),
             "/glass.js": ("glass.js", "text/javascript; charset=utf-8"),
+            "/vendor/marked.umd.js": (
+                "vendor/marked.umd.js",
+                "text/javascript; charset=utf-8",
+            ),
+            "/vendor/purify.min.js": (
+                "vendor/purify.min.js",
+                "text/javascript; charset=utf-8",
+            ),
         }
         if path not in files:
             return self.json_response(404, {"error": "Not found"})
@@ -330,7 +391,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_response(401, {"error": "Unauthorized"})
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            if length <= 0 or length > MAX_BYTES:
+            limit = (
+                MAX_IMAGE_REQUEST
+                if path == "/api/send"
+                else MAX_CHAT_POLL
+                if path == "/api/chat-poll"
+                else MAX_BYTES
+            )
+            if length <= 0 or length > limit:
                 raise ValueError("Invalid length")
             payload = json.loads(self.rfile.read(length))
             if path == "/api/login":
@@ -516,13 +584,17 @@ class Handler(BaseHTTPRequestHandler):
         machine, agent, generation, message = (
             data.get(k) for k in ("machine", "agent", "generation", "message")
         )
+        images, image_bytes = validate_images(data.get("images", []))
+        session = data.get("session")
         if (
             not all(isinstance(v, str) for v in (machine, agent, generation, message))
-            or not message.strip()
+            or not (message.strip() or images)
             or len(message) > 4000
+            or (images and (not isinstance(session, str) or not session))
         ):
             raise ValueError("Invalid message")
         with LOCK:
+            expire_pending_images()
             chat = CHATS.get((machine, agent))
             if (
                 not chat
@@ -532,6 +604,23 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json_response(
                     409, {"error": "Agent unavailable or session changed"}
                 )
+            if images and (
+                not chat.get("image_supported") or chat.get("session") != session
+            ):
+                return self.json_response(
+                    409, {"error": "Image support unavailable or session changed"}
+                )
+            if (
+                image_bytes
+                and sum(
+                    (c.get("pending") or {}).get("image_bytes", 0)
+                    for c in CHATS.values()
+                    if (c.get("pending") or {}).get("expires", 0) > time.time()
+                )
+                + image_bytes
+                > 32 * 1024 * 1024
+            ):
+                return self.json_response(429, {"error": "Image queue is full"})
             if (
                 chat["busy"]
                 or chat["pending"]
@@ -543,6 +632,9 @@ class Handler(BaseHTTPRequestHandler):
             chat["pending"] = {
                 "id": str(uuid.uuid4()),
                 "text": message,
+                "images": images,
+                "image_bytes": image_bytes,
+                "session": session if images else None,
                 "expires": time.time() + 20,
             }
             chat["delivery"] = {"id": chat["pending"]["id"], "state": "queued"}
@@ -556,6 +648,12 @@ class Handler(BaseHTTPRequestHandler):
         busy = data.get("busy")
         session = data.get("session")
         rename_supported = data.get("rename_supported", False)
+        image_supported = data.get("image_supported", False)
+        if type(image_supported) is not bool or (
+            image_supported
+            and (not isinstance(session, str) or not session or len(session) > 100)
+        ):
+            raise ValueError("Invalid image capability")
         if type(rename_supported) is not bool or (
             rename_supported
             and (not isinstance(session, str) or not session or len(session) > 100)
@@ -573,11 +671,20 @@ class Handler(BaseHTTPRequestHandler):
                 not isinstance(message, dict)
                 or message.get("role") not in {"user", "assistant"}
                 or not isinstance(message.get("text"), str)
-                or len(message["text"]) > 4000
+                or len(message["text"]) > 8000
+                or type(message.get("image_count", 0)) is not int
+                or not 0 <= message.get("image_count", 0) <= 100
             ):
                 raise ValueError("Invalid message")
-            safe.append({"role": message["role"], "text": message["text"]})
+            safe.append(
+                {
+                    "role": message["role"],
+                    "text": message["text"],
+                    "image_count": message.get("image_count", 0),
+                }
+            )
         with LOCK:
+            expire_pending_images()
             key = (machine, agent)
             source = MACHINES.get(machine)
             if (
@@ -598,9 +705,25 @@ class Handler(BaseHTTPRequestHandler):
                 if previous and previous["generation"] == generation
                 else None
             )
+            session_changed = bool(
+                pending
+                and pending.get("images")
+                and (not image_supported or pending.get("session") != session)
+            )
             command = (
-                {"id": pending["id"], "text": pending["text"]}
-                if pending and pending["expires"] > time.time() and not busy
+                {
+                    "id": pending["id"],
+                    "text": pending["text"],
+                    **(
+                        {"images": pending["images"], "session": pending["session"]}
+                        if pending.get("images")
+                        else {}
+                    ),
+                }
+                if pending
+                and pending["expires"] > time.time()
+                and not busy
+                and not session_changed
                 else None
             )
             delivery = (
@@ -618,7 +741,7 @@ class Handler(BaseHTTPRequestHandler):
                 delivery = {"id": delivery["id"], "state": receipt["state"]}
             if command:
                 delivery = {"id": command["id"], "state": "unconfirmed"}
-            elif pending and pending["expires"] <= time.time():
+            elif pending and (pending["expires"] <= time.time() or session_changed):
                 delivery = {"id": pending["id"], "state": "expired"}
             rename = RENAMES.get(key)
             rename_receipt = data.get("rename_receipt")
@@ -651,12 +774,14 @@ class Handler(BaseHTTPRequestHandler):
                 "generation": generation,
                 "session": session,
                 "rename_supported": rename_supported,
+                "image_supported": image_supported,
                 "messages": safe,
                 "seen": time.time(),
                 "busy": busy,
                 "delivery": delivery,
                 "pending": None
-                if command or (pending and pending["expires"] <= time.time())
+                if command
+                or (pending and (pending["expires"] <= time.time() or session_changed))
                 else pending,
             }
         return self.json_response(200, {"message": command, "rename": rename_command})

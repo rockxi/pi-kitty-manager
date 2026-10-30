@@ -1,3 +1,4 @@
+import base64
 import http.client
 import json
 import os
@@ -219,6 +220,91 @@ class WebTests(unittest.TestCase):
         poll["generation"] = str(uuid.uuid4())
         self.request("POST", "/api/chat-poll", json.dumps(poll), auth)
         self.assertEqual(self.request("POST", "/api/send", send, browser)[0], 409)
+
+    def test_images_require_capability_and_delivery_is_once(self):
+        machine, agent, generation = (str(uuid.uuid4()) for _ in range(3))
+        auth = {"Authorization": "Bearer " + rotating_token("x" * 40)}
+        browser = {
+            **self.login(),
+            "Origin": "http://localhost:8500",
+            "Content-Type": "application/json",
+        }
+        self.request(
+            "POST",
+            "/api/snapshot",
+            json.dumps(
+                {
+                    "machine_id": machine,
+                    "name": "Mac",
+                    "daemon_connected": True,
+                    "agents": [{"agent_id": agent, "source": "extension"}],
+                }
+            ),
+            auth,
+        )
+        poll = {
+            "machine": machine,
+            "agent": agent,
+            "generation": generation,
+            "busy": False,
+            "messages": [],
+            "session": "session-a",
+        }
+        self.request("POST", "/api/chat-poll", json.dumps(poll), auth)
+        image = {
+            "type": "image",
+            "mimeType": "image/png",
+            "data": base64.b64encode(b"\x89PNG\r\n\x1a\nhello").decode(),
+        }
+        send = {
+            "machine": machine,
+            "agent": agent,
+            "generation": generation,
+            "session": "session-a",
+            "message": "",
+            "images": [image],
+        }
+        self.assertEqual(
+            self.request("POST", "/api/send", json.dumps(send), browser)[0], 409
+        )
+        poll["image_supported"] = True
+        self.request("POST", "/api/chat-poll", json.dumps(poll), auth)
+        invalid = dict(send, images=[dict(image, data="%%%")])
+        self.assertEqual(
+            self.request("POST", "/api/send", json.dumps(invalid), browser)[0], 400
+        )
+        self.assertEqual(
+            self.request(
+                "POST", "/api/send", json.dumps(dict(send, session="other")), browser
+            )[0],
+            409,
+        )
+        self.assertEqual(
+            self.request("POST", "/api/send", json.dumps(send), browser)[0], 202
+        )
+        command = json.loads(
+            self.request("POST", "/api/chat-poll", json.dumps(poll), auth)[1]
+        )["message"]
+        self.assertEqual(command["images"], [image])
+        self.assertEqual(command["session"], "session-a")
+        self.assertIsNone(
+            json.loads(
+                self.request("POST", "/api/chat-poll", json.dumps(poll), auth)[1]
+            )["message"]
+        )
+        poll["receipt"] = {"id": command["id"], "state": "accepted"}
+        self.request("POST", "/api/chat-poll", json.dumps(poll), auth)
+        self.assertEqual(
+            self.request("POST", "/api/send", json.dumps(send), browser)[0], 202
+        )
+        poll["session"] = "session-b"
+        self.assertIsNone(
+            json.loads(
+                self.request("POST", "/api/chat-poll", json.dumps(poll), auth)[1]
+            )["message"]
+        )
+        self.assertEqual(server.CHATS[(machine, agent)]["delivery"]["state"], "expired")
+        self.assertIsNone(server.CHATS[(machine, agent)]["pending"])
 
     def test_rename_requires_capability_and_matching_session(self):
         machine, agent, generation = (str(uuid.uuid4()) for _ in range(3))

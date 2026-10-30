@@ -50,10 +50,11 @@ export class WebChat {
         const message = entry.message;
         if (message.role !== "user" && message.role !== "assistant") return null;
         const text = typeof message.content === "string" ? message.content : message.content.filter(block => block.type === "text").map(block => block.text).join("\n");
-        return {role: message.role, text: text.slice(0, 2000)};
-      }).filter((entry): entry is {role: "user" | "assistant", text: string} => !!entry && !!entry.text).slice(-30);
+        const image_count = typeof message.content === "string" ? 0 : Math.min(100, message.content.filter(block => block.type === "image").length);
+        return {role: message.role, text: text.slice(0, 8000), image_count};
+      }).filter((entry): entry is {role: "user" | "assistant", text: string, image_count: number} => !!entry && (!!entry.text || !!entry.image_count)).slice(-30);
       this.abort = new AbortController();
-      const timeout = setTimeout(() => this.abort?.abort(), 3000);
+      const timeout = setTimeout(() => this.abort?.abort(), 30000);
       timeout.unref();
       try {
         const receipt = this.receipt;
@@ -61,9 +62,9 @@ export class WebChat {
         const session = this.ctx.sessionManager.getSessionId();
         const epoch = Math.floor(Date.now() / 300000);
         const rotated = `v1.${epoch}.${createHmac("sha256", token).update(String(epoch)).digest("hex")}`;
-        const response = await fetch(base + "/api/chat-poll", {method: "POST", redirect: "error", signal: this.abort.signal, headers: {Authorization: `Bearer ${rotated}`, "Content-Type": "application/json"}, body: JSON.stringify({machine, agent: this.agent, generation: this.generation, session, rename_supported: true, busy: !this.ctx.isIdle(), messages, receipt, rename_receipt: renameReceipt})});
+        const response = await fetch(base + "/api/chat-poll", {method: "POST", redirect: "error", signal: this.abort.signal, headers: {Authorization: `Bearer ${rotated}`, "Content-Type": "application/json"}, body: JSON.stringify({machine, agent: this.agent, generation: this.generation, session, rename_supported: true, image_supported: true, busy: !this.ctx.isIdle(), messages, receipt, rename_receipt: renameReceipt})});
         if (!response.ok) return;
-        const result = await response.json() as {message?: {id?: unknown; text?: unknown} | null; rename?: {id?: unknown; name?: unknown; session?: unknown} | null};
+        const result = await response.json() as {message?: {id?: unknown; text?: unknown; images?: unknown; session?: unknown} | null; rename?: {id?: unknown; name?: unknown; session?: unknown} | null};
         if (this.receipt === receipt) this.receipt = undefined;
         if (this.renameReceipt === renameReceipt) this.renameReceipt = undefined;
         const rename = result.rename;
@@ -81,8 +82,16 @@ export class WebChat {
         if (command && typeof command.id === "string" && typeof command.text === "string") {
           let state: "accepted" | "rejected" = "rejected";
           try {
-            if (this.active && this.ctx.isIdle() && command.text.trim() && command.text.length <= 4000) {
-              this.pi.sendUserMessage(command.text, {expandPromptTemplates: false});
+            const images = command.images === undefined ? [] : command.images;
+            if (!Array.isArray(images) || images.length > 3) throw new Error("Invalid images");
+            let bytes = 0;
+            for (const image of images) {
+              if (!image || image.type !== "image" || !["image/png", "image/jpeg", "image/webp"].includes(image.mimeType) || typeof image.data !== "string" || image.data.length > 6*1024*1024 || !/^[A-Za-z0-9+/]*={0,2}$/.test(image.data)) throw new Error("Invalid image");
+              bytes += Buffer.byteLength(image.data, "base64");
+            }
+            if (this.active && this.ctx.isIdle() && this.ctx.sessionManager.getSessionId() === session && (!images.length || command.session === session) && bytes <= 4*1024*1024 && (command.text.trim() || images.length) && command.text.length <= 4000) {
+              const content = images.length ? [...(command.text.trim() ? [{type: "text" as const, text: command.text}] : []), ...images.map(image => ({type: "image" as const, mimeType: image.mimeType as string, data: image.data as string}))] : command.text;
+              this.pi.sendUserMessage(content, {expandPromptTemplates: false});
               state = "accepted";
             }
           } catch { /* Report failure rather than retrying the command. */ }

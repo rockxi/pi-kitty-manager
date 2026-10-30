@@ -1,0 +1,27 @@
+/* Rendered conversation content and image attachments. */
+.chat-message { min-width: 0; }
+.markdown { font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
+.chat-message .markdown strong { font-size: inherit; color: inherit; }
+.markdown > :first-child { margin-top: 6px; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown p { white-space: normal; margin: 8px 0; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4, .markdown h5, .markdown h6 { margin: 14px 0 6px; font-size: 1em; line-height: 1.4; }
+.markdown h1, .markdown h2 { font-size: 1.12em; }
+.markdown ul, .markdown ol { padding-left: 22px; margin: 8px 0; }
+.markdown li + li { margin-top: 3px; }
+.markdown code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .92em; background: rgba(120,135,155,.15); padding: .1em .3em; border-radius: 4px; }
+.markdown pre { overflow-x: auto; max-width: 100%; padding: 12px; margin: 10px 0; border-radius: 9px; background: rgba(75,90,110,.12); }
+.markdown pre code { padding: 0; background: none; white-space: pre; }
+.markdown blockquote { margin: 10px 0; padding-left: 12px; border-left: 3px solid var(--accent); color: var(--muted); }
+.markdown a { color: var(--accent); text-decoration: underline; overflow-wrap: anywhere; }
+.markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 10px 0; }
+.markdown th, .markdown td { text-align: left; border: 1px solid var(--line); padding: 6px 9px; }
+.markdown hr { border: 0; border-top: 1px solid var(--line); }
+.chat-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.chat-attachments:empty { display: none; }
+.chat-attachment { position: relative; width: 76px; height: 76px; }
+.chat-attachment img { width: 100%; height: 100%; object-fit: cover; border-radius: 9px; border: 1px solid var(--line); }
+.attachment-remove { position: absolute; right: -5px; top: -5px; width: 25px; height: 25px; border: 1px solid var(--line); border-radius: 50%; background: var(--surface); color: var(--text); font-size: 18px; line-height: 1; }
+.chat-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.chat-image-indicator { display: inline-block; margin-top: 8px; color: var(--muted); font-size: 11px; }
+@media (max-width: 720px) { .chat-tools { align-self: stretch; } .chat-attachment { width: 68px; height: 68px; } }
