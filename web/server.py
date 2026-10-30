@@ -31,6 +31,7 @@ ATTEMPTS = {}
 LOCK = threading.Lock()
 MACHINES = {}
 CHATS = {}
+LAUNCHES = {}
 MAX_BYTES = 262144
 
 
@@ -80,10 +81,14 @@ def parse_update(payload):
                 raise ValueError("Invalid agent field")
             item[key] = value
         safe_agents.append(item)
+    launch_enabled = payload.get("launch_enabled", False)
+    if type(launch_enabled) is not bool:
+        raise ValueError("Invalid launch capability")
     return machine_id, {
         "id": machine_id,
         "name": name,
         "daemon_connected": connected,
+        "launch_enabled": launch_enabled,
         "agents": safe_agents,
         "last_seen": time.time(),
     }
@@ -141,6 +146,27 @@ class Handler(BaseHTTPRequestHandler):
             if not self.browser_authorized():
                 return self.json_response(401, {"error": "Unauthorized"})
             return self.json_response(200, snapshot())
+        if path == "/api/launch-status":
+            if not self.browser_authorized():
+                return self.json_response(401, {"error": "Unauthorized"})
+            machine = parse_qs(urlsplit(self.path).query).get("machine", [""])[0]
+            with LOCK:
+                item = LAUNCHES.get(machine)
+                result = {"state": item["state"], "id": item["id"]} if item else None
+                if (
+                    item
+                    and item["state"] == "unconfirmed"
+                    and time.time() - item.get("dispatched_at", 0) < 15
+                ):
+                    result["state"] = "dispatching"
+                if (
+                    item
+                    and item["state"] == "queued"
+                    and item["expires"] <= time.time()
+                ):
+                    item["state"] = "expired"
+                    result["state"] = "expired"
+            return self.json_response(200, {"launch": result})
         if path == "/api/chat":
             if not self.browser_authorized():
                 return self.json_response(401, {"error": "Unauthorized"})
@@ -162,6 +188,7 @@ class Handler(BaseHTTPRequestHandler):
             "/app.js": ("app.js", "text/javascript; charset=utf-8"),
             "/style.css": ("style.css", "text/css; charset=utf-8"),
             "/chat.css": ("chat.css", "text/css; charset=utf-8"),
+            "/launch.css": ("launch.css", "text/css; charset=utf-8"),
         }
         if path not in files:
             return self.json_response(404, {"error": "Not found"})
@@ -253,12 +280,21 @@ class Handler(BaseHTTPRequestHandler):
         if path not in {
             "/api/snapshot",
             "/api/chat-poll",
+            "/api/launch-poll",
+            "/api/launch",
+            "/api/launch-ack",
             "/api/send",
             "/api/login",
             "/api/logout",
         }:
             return self.json_response(404, {"error": "Not found"})
-        browser = path in {"/api/send", "/api/login", "/api/logout"}
+        browser = path in {
+            "/api/send",
+            "/api/launch",
+            "/api/launch-ack",
+            "/api/login",
+            "/api/logout",
+        }
         if browser and not self.same_origin():
             return self.json_response(403, {"error": "Invalid origin"})
         if path not in {"/api/login", "/api/logout"} and not (
@@ -280,6 +316,12 @@ class Handler(BaseHTTPRequestHandler):
                     if session:
                         SESSIONS.pop(session.value, None)
                 return self.json_response(200, {"ok": True}, self.cookie("", 0))
+            if path == "/api/launch":
+                return self.browser_launch(payload)
+            if path == "/api/launch-ack":
+                return self.ack_launch(payload)
+            if path == "/api/launch-poll":
+                return self.launch_poll(payload)
             if path == "/api/chat-poll":
                 return self.chat_poll(payload)
             if path == "/api/send":
@@ -292,6 +334,89 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, TypeError, KeyError, UnicodeError, AttributeError):
             return self.json_response(400, {"error": "Invalid snapshot"})
         self.json_response(200, {"ok": True})
+
+    def browser_launch(self, data):
+        machine = str(uuid.UUID(data.get("machine", "")))
+        cwd = data.get("cwd")
+        if (
+            not isinstance(cwd, str)
+            or not cwd.startswith("/")
+            or len(cwd) > 1024
+            or any(ord(c) < 32 or ord(c) == 127 for c in cwd)
+        ):
+            raise ValueError("Invalid folder")
+        with LOCK:
+            source = MACHINES.get(machine)
+            current = LAUNCHES.get(machine)
+            if (
+                current
+                and current["state"] == "queued"
+                and current["expires"] <= time.time()
+            ):
+                current["state"] = "expired"
+            if (
+                not source
+                or not source["launch_enabled"]
+                or not source["daemon_connected"]
+                or time.time() - source["last_seen"] >= 20
+            ):
+                return self.json_response(409, {"error": "Launch unavailable"})
+            if current and current["state"] in {"queued", "unconfirmed"}:
+                return self.json_response(
+                    409, {"error": "Previous launch is pending or unconfirmed"}
+                )
+            item = {
+                "id": str(uuid.uuid4()),
+                "cwd": cwd,
+                "state": "queued",
+                "expires": time.time() + 30,
+            }
+            LAUNCHES[machine] = item
+        return self.json_response(202, {"id": item["id"]})
+
+    def ack_launch(self, data):
+        machine = str(uuid.UUID(data.get("machine", "")))
+        with LOCK:
+            item = LAUNCHES.get(machine)
+            if (
+                not item
+                or item["id"] != data.get("id")
+                or item["state"] != "unconfirmed"
+                or time.time() - item.get("dispatched_at", 0) < 15
+            ):
+                return self.json_response(409, {"error": "Launch state changed"})
+            item["state"] = "acknowledged"
+        return self.json_response(200, {"ok": True})
+
+    def launch_poll(self, data):
+        machine = str(uuid.UUID(data.get("machine", "")))
+        with LOCK:
+            source = MACHINES.get(machine)
+            if (
+                not source
+                or not source["launch_enabled"]
+                or time.time() - source["last_seen"] >= 20
+            ):
+                return self.json_response(409, {"error": "Launch unavailable"})
+            item = LAUNCHES.get(machine)
+            receipt = data.get("receipt")
+            if (
+                item
+                and isinstance(receipt, dict)
+                and receipt.get("id") == item["id"]
+                and receipt.get("state") in {"started", "failed"}
+                and item["state"] == "unconfirmed"
+            ):
+                item["state"] = receipt["state"]
+            command = None
+            if item and item["state"] == "queued":
+                if item["expires"] <= time.time():
+                    item["state"] = "expired"
+                else:
+                    command = {"id": item["id"], "cwd": item["cwd"]}
+                    item["state"] = "unconfirmed"
+                    item["dispatched_at"] = time.time()
+        return self.json_response(200, {"command": command})
 
     def browser_send(self, data):
         machine, agent, generation, message = (

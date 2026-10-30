@@ -7,6 +7,7 @@
   <title>Pi Kitty — агенты</title>
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/chat.css">
+  <link rel="stylesheet" href="/launch.css">
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -30,6 +31,17 @@
   </div>
   <dialog id="login-dialog" aria-labelledby="login-title">
     <form id="login-form" class="login-form"><div class="brand-mark" aria-hidden="true">π</div><h2 id="login-title">Вход в Pi Kitty</h2><p>Войдите, чтобы увидеть своих агентов.</p><label for="login-name">Логин</label><input id="login-name" name="username" autocomplete="username" required><label for="login-password">Пароль</label><input id="login-password" name="password" type="password" autocomplete="current-password" required><button type="submit">Войти</button><p id="login-error" role="alert"></p></form>
+  </dialog>
+  <dialog id="launch-dialog" aria-labelledby="launch-title">
+    <form id="launch-form" class="login-form">
+      <div class="chat-header"><h2 id="launch-title">Новый агент</h2><button type="button" class="chat-close" id="launch-close" aria-label="Закрыть">×</button></div>
+      <p>Новая вкладка pi откроется в kitty на выбранном компьютере.</p>
+      <label for="launch-machine">Компьютер</label><select id="launch-machine" required></select>
+      <label for="launch-cwd">Абсолютный путь к папке</label><input id="launch-cwd" list="launch-folders" placeholder="/Users/name/project" required maxlength="1024"><datalist id="launch-folders"></datalist>
+      <button id="launch-submit" type="submit">Создать агента</button>
+      <p id="launch-status" role="status"></p>
+      <button id="launch-ack" type="button" hidden>Я проверил kitty — разрешить новый запуск</button>
+    </form>
   </dialog>
   <dialog id="chat-dialog" aria-labelledby="chat-title">
     <div class="chat-header"><div><p class="eyebrow">ДИАЛОГ</p><h2 id="chat-title"></h2><p id="chat-computer"></p></div><button type="button" class="chat-close" id="chat-close" aria-label="Закрыть диалог">×</button></div>

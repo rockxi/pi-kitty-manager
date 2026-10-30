@@ -72,7 +72,13 @@ function machineCard(machine) {
   const icon = make('div', 'computer-icon', '▣'); icon.setAttribute('aria-hidden', 'true');
   const label = make('div'); label.append(make('h2', '', machine.name), make('p', '', `${machine.agents.length} ${plural(machine.agents.length, ['агент', 'агента', 'агентов'])}`));
   left.append(icon, label);
-  heading.append(left, badge(...machineState(machine)));
+  const actions = make('div', 'machine-actions');
+  actions.append(badge(...machineState(machine)));
+  if (machine.online && machine.daemon_connected && machine.launch_enabled) {
+    const create = make('button', 'open-chat', '+ Новый агент');
+    create.type = 'button'; create.addEventListener('click', () => openLaunch(machine)); actions.append(create);
+  }
+  heading.append(left, actions);
   section.append(heading);
   if (!machine.online) section.append(make('p', 'machine-message', 'Последние данные до отключения.'));
   else if (!machine.daemon_connected) section.append(make('p', 'machine-message', 'Клиент подключён, но локальный pi-kitty daemon недоступен.'));
@@ -147,6 +153,61 @@ $('#search').addEventListener('input', (event) => { query = event.target.value; 
 document.addEventListener('keydown', (event) => {
   if (event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey && !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) { event.preventDefault(); $('#search').focus(); }
   if (event.key === 'Escape' && document.activeElement === $('#search')) $('#search').blur();
+});
+let launchMachine = null;
+let launchId = null;
+let launchPolling = false;
+function openLaunch(machine) {
+  launchMachine = machine.id; launchId = null;
+  const select = $('#launch-machine'); select.replaceChildren();
+  for (const item of machines.filter(m => m.online && m.daemon_connected && m.launch_enabled)) {
+    const option = make('option', '', item.name); option.value = item.id; select.append(option);
+  }
+  select.value = machine.id;
+  updateLaunchFolders();
+  $('#launch-status').textContent = ''; $('#launch-ack').hidden = true;
+  $('#launch-dialog').showModal(); refreshLaunch();
+}
+function updateLaunchFolders() {
+  const machine = machines.find(m => m.id === $('#launch-machine').value);
+  launchMachine = machine?.id || null; launchId = null;
+  const list = $('#launch-folders'); list.replaceChildren();
+  for (const folder of [...new Set((machine?.agents || []).map(a => a.cwd).filter(Boolean))]) {
+    const option = document.createElement('option'); option.value = folder; list.append(option);
+  }
+  $('#launch-cwd').value = machine?.agents.find(a => a.cwd)?.cwd || '';
+  refreshLaunch();
+}
+async function refreshLaunch() {
+  if (!$('#launch-dialog').open || !launchMachine || launchPolling) return;
+  const machine = launchMachine; launchPolling = true;
+  try {
+    const response = await fetch('/api/launch-status?' + new URLSearchParams({machine}), {cache:'no-store'});
+    if (!response.ok) throw new Error('Не удалось узнать состояние запуска.');
+    const data = await response.json(); if (machine !== launchMachine) return;
+    const state = data.launch?.state; launchId = data.launch?.id || null;
+    const message = {queued:'Запрос ожидает передачи на компьютер…', dispatching:'Запускаем вкладку и ждём подтверждения…', unconfirmed:'Запуск не подтверждён. Проверьте kitty, прежде чем создавать агента повторно.', started:'Вкладка создана. Агент появится в списке после запуска pi.', failed:'Не удалось создать вкладку. Проверьте путь, установку pi и доступность kitty.', expired:'Компьютер не получил запрос вовремя. Можно попробовать снова.', acknowledged:'Можно отправить новый запрос.'};
+    $('#launch-status').textContent = message[state] || '';
+    $('#launch-submit').disabled = state === 'queued' || state === 'dispatching' || state === 'unconfirmed';
+    $('#launch-ack').hidden = state !== 'unconfirmed';
+  } catch (error) { $('#launch-status').textContent = error.message; $('#launch-submit').disabled = true; }
+  finally { launchPolling = false; }
+}
+$('#launch-machine').addEventListener('change', updateLaunchFolders);
+$('#launch-close').addEventListener('click', () => $('#launch-dialog').close());
+$('#launch-form').addEventListener('submit', async event => {
+  event.preventDefault(); $('#launch-submit').disabled = true;
+  try {
+    const response = await fetch('/api/launch', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({machine:launchMachine,cwd:$('#launch-cwd').value.trim()})});
+    if (!response.ok) throw new Error(response.status === 409 ? 'Компьютер недоступен или предыдущий запуск ещё не подтверждён.' : 'Не удалось отправить запрос. Проверьте путь.');
+    $('#launch-status').textContent = 'Запрос ожидает передачи на компьютер…'; await refreshLaunch();
+  } catch (error) { $('#launch-status').textContent = error.message; await refreshLaunch(); }
+});
+$('#launch-ack').addEventListener('click', async () => {
+  if (!launchId || !confirm('Вы проверили kitty? Новый запрос может создать ещё одну вкладку.')) return;
+  const response = await fetch('/api/launch-ack', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({machine:launchMachine,id:launchId})});
+  if (!response.ok) $('#launch-status').textContent = 'Состояние изменилось. Обновите страницу.';
+  await refreshLaunch();
 });
 let currentChat = null;
 let chatGeneration = null;
@@ -232,3 +293,4 @@ $('#logout').addEventListener('click', async () => {
 refresh();
 setInterval(refresh, 3000);
 setInterval(refreshChat, 2000);
+setInterval(refreshLaunch, 2000);

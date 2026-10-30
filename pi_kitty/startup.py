@@ -13,7 +13,7 @@ import time
 from .common import Client, Error, secure_dir, socket_path
 
 
-def ensure_web_client(config: dict[str, str]) -> bool:
+def ensure_web_client(config: dict[str, str], endpoint: str | None = None) -> bool:
     """Start an opt-in, single-instance web bridge from kitty's env options."""
     token = config.get("PI_KITTY_WEB_TOKEN_FILE", "").strip()
     if not token:
@@ -24,6 +24,10 @@ def ensure_web_client(config: dict[str, str]) -> bool:
         args.extend(["--server", config["PI_KITTY_WEB_SERVER"]])
     if config.get("PI_KITTY_WEB_NAME"):
         args.extend(["--name", config["PI_KITTY_WEB_NAME"]])
+    if config.get("PI_KITTY_WEB_LAUNCH") == "1" and endpoint:
+        args.extend(["--launch-endpoint", endpoint])
+    if config.get("PI_KITTY_WEB_CHAT") == "1":
+        args.append("--chat")
     if Path(sys.executable).name.lower() in {"kitty", "kitty.exe"}:
         code = (
             f"import sys; sys.path.insert(0, {root!r}); "

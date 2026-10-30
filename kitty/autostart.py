@@ -22,6 +22,8 @@ def on_load(boss, data):
             "PI_KITTY_WEB_TOKEN_FILE",
             "PI_KITTY_WEB_SERVER",
             "PI_KITTY_WEB_NAME",
+            "PI_KITTY_WEB_CHAT",
+            "PI_KITTY_WEB_LAUNCH",
         )
         if isinstance(configured.get(key), str)
     }
@@ -29,7 +31,7 @@ def on_load(boss, data):
         f"import sys; sys.path.insert(0, {root!r}); "
         "from pi_kitty.startup import ensure, ensure_web_client; "
         f"ensure(endpoint={endpoint!r}, command={executable!r}); "
-        f"ensure_web_client({web_config!r})"
+        f"ensure_web_client({web_config!r}, endpoint={endpoint!r})"
     )
     subprocess.Popen(
         [executable, "+runpy", code],

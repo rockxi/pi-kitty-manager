@@ -29,6 +29,7 @@ class WebTests(unittest.TestCase):
         server.ATTEMPTS.clear()
         server.MACHINES.clear()
         server.CHATS.clear()
+        server.LAUNCHES.clear()
         self.http = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
         self.thread = threading.Thread(target=self.http.serve_forever, daemon=True)
         self.thread.start()
@@ -43,6 +44,7 @@ class WebTests(unittest.TestCase):
         server.ATTEMPTS.clear()
         server.MACHINES.clear()
         server.CHATS.clear()
+        server.LAUNCHES.clear()
 
     def request(self, method, path, body=None, headers=None):
         connection = http.client.HTTPConnection(
@@ -216,6 +218,106 @@ class WebTests(unittest.TestCase):
         self.request("POST", "/api/chat-poll", json.dumps(poll), auth)
         self.assertEqual(self.request("POST", "/api/send", send, browser)[0], 409)
 
+    def test_launch_is_opt_in_and_delivered_at_most_once(self):
+        machine = str(uuid.uuid4())
+        auth = {"Authorization": "Bearer " + rotating_token("x" * 40)}
+        browser = {
+            **self.login(),
+            "Origin": "http://localhost:8500",
+            "Content-Type": "application/json",
+        }
+        snapshot = {
+            "machine_id": machine,
+            "name": "Mac",
+            "daemon_connected": True,
+            "agents": [],
+        }
+        self.request("POST", "/api/snapshot", json.dumps(snapshot), auth)
+        request = json.dumps({"machine": machine, "cwd": "/tmp"})
+        self.assertEqual(self.request("POST", "/api/launch", request, browser)[0], 409)
+        snapshot["launch_enabled"] = True
+        self.request("POST", "/api/snapshot", json.dumps(snapshot), auth)
+        self.assertEqual(self.request("POST", "/api/launch", request, auth)[0], 403)
+        self.assertEqual(
+            self.request(
+                "POST",
+                "/api/launch",
+                json.dumps({"machine": machine, "cwd": "relative"}),
+                browser,
+            )[0],
+            400,
+        )
+        status, data = self.request("POST", "/api/launch", request, browser)
+        self.assertEqual(status, 202)
+        ident = json.loads(data)["id"]
+        self.assertEqual(self.request("POST", "/api/launch", request, browser)[0], 409)
+        poll = json.dumps({"machine": machine})
+        command = json.loads(self.request("POST", "/api/launch-poll", poll, auth)[1])[
+            "command"
+        ]
+        self.assertEqual(command, {"id": ident, "cwd": "/tmp"})
+        self.assertIsNone(
+            json.loads(self.request("POST", "/api/launch-poll", poll, auth)[1])[
+                "command"
+            ]
+        )
+        self.assertEqual(self.request("POST", "/api/launch", request, browser)[0], 409)
+        receipt = json.dumps(
+            {"machine": machine, "receipt": {"id": ident, "state": "started"}}
+        )
+        self.request("POST", "/api/launch-poll", receipt, auth)
+        state = json.loads(
+            self.request(
+                "GET", "/api/launch-status?machine=" + machine, headers=browser
+            )[1]
+        )
+        self.assertEqual(state["launch"]["state"], "started")
+        self.assertEqual(self.request("POST", "/api/launch", request, browser)[0], 202)
+
+    def test_launch_arguments_are_not_interpreted_by_shell(self):
+        from pi_kitty.web_client import launch_agent
+        from unittest.mock import AsyncMock
+
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "a;touch danger"
+            target.mkdir()
+            with (
+                patch("pi_kitty.web_client.shutil.which", return_value="/opt/pi"),
+                patch("pi_kitty.web_client.Kitty.endpoint"),
+                patch(
+                    "pi_kitty.web_client.Client.request",
+                    return_value={
+                        "kitty": [{"endpoint": "unix:/tmp/test", "error": None}]
+                    },
+                ),
+                patch(
+                    "pi_kitty.web_client.Kitty.call",
+                    new_callable=AsyncMock,
+                    return_value="42\n",
+                ) as call,
+            ):
+                self.assertEqual(
+                    launch_agent(
+                        str(target),
+                        "unix:/tmp/test",
+                        "https://example.com",
+                        "/tmp/token",
+                        True,
+                    ),
+                    "42",
+                )
+                args = call.await_args.args
+                self.assertIn("--cwd=" + str(target), args)
+                self.assertEqual(args[-1], "/opt/pi")
+            with self.assertRaises(ValueError):
+                launch_agent(
+                    "/does-not-exist",
+                    "unix:/tmp/test",
+                    "https://example.com",
+                    "/tmp/token",
+                    True,
+                )
+
     def test_login_csrf_rate_limit_and_rotated_keys(self):
         payload = json.dumps({"login": "admin", "password": "password-123456"})
         headers = {"Origin": "http://evil.test", "Content-Type": "application/json"}
@@ -277,12 +379,24 @@ class WebTests(unittest.TestCase):
         self.assertEqual(
             local_server("http://localhost:8500/"), "http://localhost:8500"
         )
+        self.assertEqual(
+            local_server("https://agents.rockxi.ru/"), "https://agents.rockxi.ru"
+        )
+        self.assertEqual(
+            local_server("https://example.com:8443"), "https://example.com:8443"
+        )
         for url in (
             "http://example.com:8500",
             "http://localhost",
             "http://localhost:9000",
             "http://localhost:8500/x",
             "http://user@localhost:8500",
+            "https://user@example.com",
+            "https://@example.com",
+            "https://example.com/path",
+            "https://example.com?key=1",
+            "https://example.com/#fragment",
+            "https://example.com\n",
         ):
             with self.assertRaises(ValueError):
                 local_server(url)
@@ -296,6 +410,15 @@ class WebTests(unittest.TestCase):
         )
         self.assertNotIn("session_file", view)
         self.assertNotIn("preview", view)
+
+    def test_tls_context_verifies_certificates(self):
+        import ssl
+        from pi_kitty.web_client import tls_context
+
+        context = tls_context()
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+        self.assertTrue(context.check_hostname)
+        self.assertGreater(context.cert_store_stats()["x509_ca"], 0)
 
     def test_stable_machine_identity_and_token(self):
         with (

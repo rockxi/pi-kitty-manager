@@ -1,0 +1,10 @@
+.machine-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+#launch-dialog { width: min(480px, calc(100% - 32px)); }
+#launch-dialog .chat-header { align-items: center; margin-bottom: 6px; }
+#launch-dialog .chat-close { padding: 0; background: var(--grey-bg); color: var(--text); font-weight: normal; flex: none; }
+#launch-machine { border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--text); padding: 11px; font: inherit; margin-bottom: 8px; }
+#launch-status { margin: 2px 0; line-height: 1.5; }
+#launch-status:empty { display: none; }
+#launch-ack { background: var(--grey-bg); color: var(--text); }
+#launch-submit:disabled { opacity: .5; cursor: not-allowed; }
+@media (max-width: 720px) { .machine-actions { gap: 7px; } }

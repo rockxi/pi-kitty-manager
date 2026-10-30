@@ -4,7 +4,17 @@ import { createHmac } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-/** Opt-in local chat bridge. No shell input, terminal emulation or slash commands. */
+/** Accept only verified HTTPS or the existing local-only HTTP endpoint. */
+export function serverOrigin(value: string): string {
+  if (/[\x00-\x20\x7f]/.test(value) || /^[a-z]+:\/\/[^/]*@/i.test(value)) throw new Error("Invalid server URL");
+  const url = new URL(value);
+  const local = url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname) && url.port === "8500";
+  if ((!local && url.protocol !== "https:") || !url.hostname || url.username || url.password || (url.pathname !== "/" && url.pathname !== "") || url.search || url.hash) throw new Error("Use an HTTPS origin or http://localhost:8500");
+  if (url.protocol === "https:" && process.env.NODE_TLS_REJECT_UNAUTHORIZED === "0") throw new Error("TLS certificate verification is disabled");
+  return local && url.hostname === "localhost" ? "http://127.0.0.1:8500" : url.origin;
+}
+
+/** Opt-in chat bridge. No shell input, terminal emulation or slash commands. */
 export class WebChat {
   private active = true;
   private timer?: ReturnType<typeof setTimeout>;
@@ -28,8 +38,7 @@ export class WebChat {
   }
   private async poll() {
     try {
-      const url = new URL(process.env.PI_KITTY_WEB_SERVER || "http://localhost:8500");
-      if (url.protocol !== "http:" || !["localhost", "127.0.0.1"].includes(url.hostname) || url.port !== "8500" || url.username || url.password || (url.pathname !== "/" && url.pathname !== "") || url.search || url.hash) throw new Error("Invalid local server URL");
+      const base = serverOrigin(process.env.PI_KITTY_WEB_SERVER || "http://localhost:8500");
       const tokenPath = process.env.PI_KITTY_WEB_TOKEN_FILE!;
       const token = readFileSync(tokenPath.replace(/^~(?=\/)/, homedir()), "utf8").split(/\r?\n/).find(s => s.startsWith("PI_KITTY_WEB_TOKEN="))?.slice("PI_KITTY_WEB_TOKEN=".length).trim();
       if (!token || token.length < 32) throw new Error("Invalid token file");
@@ -47,7 +56,6 @@ export class WebChat {
       timeout.unref();
       try {
         const receipt = this.receipt;
-        const base = url.hostname === "localhost" ? "http://127.0.0.1:8500" : url.origin;
         const epoch = Math.floor(Date.now() / 300000);
         const rotated = `v1.${epoch}.${createHmac("sha256", token).update(String(epoch)).digest("hex")}`;
         const response = await fetch(base + "/api/chat-poll", {method: "POST", redirect: "error", signal: this.abort.signal, headers: {Authorization: `Bearer ${rotated}`, "Content-Type": "application/json"}, body: JSON.stringify({machine, agent: this.agent, generation: this.generation, busy: !this.ctx.isIdle(), messages, receipt})});
