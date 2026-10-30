@@ -23,7 +23,7 @@ test('opt-in chat sends active branch and accepts a command once', async () => {
     return {ok:true, json:async () => ({message:requests.length === 1 ? {id:'command-id',text:'hello'} : null})};
   };
   const {WebChat} = await jiti.import(path.join(__dirname, '../pi-extension/web-chat.ts'));
-  const ctx = {isIdle:()=>true, sessionManager:{getBranch:()=>[
+  const ctx = {isIdle:()=>true, sessionManager:{getSessionId:()=> 'session-a', getBranch:()=>[
     {type:'message',message:{role:'user',content:'previous'}},
     {type:'message',message:{role:'assistant',content:[{type:'text',text:'answer'}]}},
     {type:'message',message:{role:'toolResult',content:[{type:'text',text:'secret'}]}},
@@ -40,6 +40,26 @@ test('opt-in chat sends active branch and accepts a command once', async () => {
     assert.deepEqual(requests[1].body.receipt, {id:'command-id',state:'accepted'});
     assert.match(requests[0].auth, /^Bearer v1\.\d+\.[a-f0-9]{64}$/);
   } finally { chat.stop(); global.fetch = originalFetch; process.env = old; fs.rmSync(folder, {recursive:true,force:true}); }
+});
+
+test('rename uses the pi session API and acknowledges once even while busy', async () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-rename-'));
+  const old = {...process.env}; const originalFetch = global.fetch;
+  fs.mkdirSync(path.join(folder, 'pi-kitty/web-client'), {recursive:true});
+  fs.writeFileSync(path.join(folder, 'pi-kitty/web-client/machine-id'), 'a-machine');
+  const token = path.join(folder, '.env'); fs.writeFileSync(token, 'PI_KITTY_WEB_TOKEN=' + 'x'.repeat(40));
+  process.env.XDG_CONFIG_HOME = folder; process.env.PI_KITTY_WEB_TOKEN_FILE = token; process.env.PI_KITTY_WEB_CHAT = '1';
+  const requests = [], names = [];
+  global.fetch = async (url, options) => { requests.push(JSON.parse(options.body)); return {ok:true,json:async()=>({rename:requests.length === 1 ? {id:'rename-id',name:'Новое имя',session:'session-a'} : null})}; };
+  const {WebChat} = await jiti.import(path.join(__dirname, '../pi-extension/web-chat.ts'));
+  const ctx = {isIdle:()=>false,sessionManager:{getSessionId:()=> 'session-a',getBranch:()=>[]}};
+  const chat = new WebChat({setSessionName:name=>names.push(name)},ctx,'agent','generation');
+  try {
+    chat.start(); for (let i=0; i<70 && requests.length<2; i++) await wait(50);
+    assert.deepEqual(names,['Новое имя']);
+    assert.equal(requests[0].rename_supported,true); assert.equal(requests[0].session,'session-a');
+    assert.deepEqual(requests[1].rename_receipt,{id:'rename-id',state:'accepted'});
+  } finally {chat.stop(); global.fetch=originalFetch; process.env=old; fs.rmSync(folder,{recursive:true,force:true});}
 });
 
 test('chat URL security rejects unencrypted remote and disabled verification', async () => {

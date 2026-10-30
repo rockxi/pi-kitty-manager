@@ -61,7 +61,9 @@ function agentRow(agent, machine) {
     const open = make('button', 'open-chat', 'Открыть диалог');
     open.type = 'button';
     open.addEventListener('click', () => openChat(machine, agent));
-    row.append(open);
+    const rename = make('button', 'open-chat', 'Переименовать');
+    rename.type = 'button'; rename.addEventListener('click', () => openRename(machine, agent));
+    row.append(rename, open);
   }
   return row;
 }
@@ -209,6 +211,51 @@ $('#launch-ack').addEventListener('click', async () => {
   if (!response.ok) $('#launch-status').textContent = 'Состояние изменилось. Обновите страницу.';
   await refreshLaunch();
 });
+let renameTarget = null;
+let renameInfo = null;
+let renamePolling = false;
+function openRename(machine, agent) {
+  renameTarget = {machine: machine.id, agent: agent.agent_id}; renameInfo = null;
+  $('#rename-input').value = agent.session_name || '';
+  $('#rename-status').textContent = 'Проверяем связь с агентом…';
+  $('#rename-submit').disabled = true; $('#rename-ack').hidden = true;
+  $('#rename-dialog').showModal(); refreshRename();
+}
+async function refreshRename() {
+  if (!$('#rename-dialog').open || !renameTarget || renamePolling) return;
+  const target = renameTarget; renamePolling = true;
+  try {
+    const response = await fetch('/api/chat?' + new URLSearchParams(target), {cache:'no-store'});
+    if (!response.ok) throw new Error('Не удалось связаться с агентом.');
+    const data = await response.json(); if (target !== renameTarget) return;
+    renameInfo = data;
+    const state = data.rename?.state;
+    const statuses = {queued:'Ожидаем передачи агенту…', dispatching:'Сохраняем имя…', unconfirmed:'Сохранение не подтверждено. Проверьте имя в kitty перед повтором.', accepted:'Имя сохранено в сессии pi.', rejected:'Агент не смог сохранить имя. Проверьте сессию.', expired:'Агент не получил запрос или сессия изменилась.', acknowledged:'Можно повторить сохранение.'};
+    $('#rename-status').textContent = !data.available ? 'Агент не подключён к веб-чату.' : !data.rename_supported ? 'Обновите расширение и выполните /reload в pi.' : (statuses[state] || '');
+    $('#rename-submit').disabled = !data.available || !data.rename_supported || ['queued','dispatching','unconfirmed'].includes(state);
+    $('#rename-ack').hidden = state !== 'unconfirmed';
+  } catch (error) { $('#rename-status').textContent = error.message; $('#rename-submit').disabled = true; }
+  finally { renamePolling = false; }
+}
+$('#rename-close').addEventListener('click', () => $('#rename-dialog').close());
+$('#rename-dialog').addEventListener('close', () => { renameTarget = null; renameInfo = null; });
+$('#rename-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const name = $('#rename-input').value.trim();
+  if (!name || !renameTarget || !renameInfo?.generation || !renameInfo?.session) return;
+  $('#rename-submit').disabled = true;
+  try {
+    const response = await fetch('/api/rename', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({...renameTarget,generation:renameInfo.generation,session:renameInfo.session,name})});
+    if (!response.ok) throw new Error(response.status === 409 ? 'Агент недоступен или сессия изменилась.' : 'Не удалось сохранить имя.');
+    $('#rename-status').textContent = 'Ожидаем передачи агенту…'; await refreshRename();
+  } catch (error) { $('#rename-status').textContent = error.message; $('#rename-submit').disabled = false; }
+});
+$('#rename-ack').addEventListener('click', async () => {
+  if (!renameTarget || !renameInfo?.rename?.id || !confirm('Проверьте имя агента в kitty перед повторной попыткой. Продолжить?')) return;
+  const response = await fetch('/api/rename-ack', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...renameTarget,id:renameInfo.rename.id})});
+  if (!response.ok) $('#rename-status').textContent = 'Состояние изменилось. Обновите страницу.';
+  await refreshRename();
+});
 let currentChat = null;
 let chatGeneration = null;
 let chatMessages = '';
@@ -294,3 +341,4 @@ refresh();
 setInterval(refresh, 3000);
 setInterval(refreshChat, 2000);
 setInterval(refreshLaunch, 2000);
+setInterval(refreshRename, 2000);

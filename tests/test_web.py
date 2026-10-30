@@ -29,6 +29,7 @@ class WebTests(unittest.TestCase):
         server.ATTEMPTS.clear()
         server.MACHINES.clear()
         server.CHATS.clear()
+        server.RENAMES.clear()
         server.LAUNCHES.clear()
         self.http = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
         self.thread = threading.Thread(target=self.http.serve_forever, daemon=True)
@@ -44,6 +45,7 @@ class WebTests(unittest.TestCase):
         server.ATTEMPTS.clear()
         server.MACHINES.clear()
         server.CHATS.clear()
+        server.RENAMES.clear()
         server.LAUNCHES.clear()
 
     def request(self, method, path, body=None, headers=None):
@@ -217,6 +219,96 @@ class WebTests(unittest.TestCase):
         poll["generation"] = str(uuid.uuid4())
         self.request("POST", "/api/chat-poll", json.dumps(poll), auth)
         self.assertEqual(self.request("POST", "/api/send", send, browser)[0], 409)
+
+    def test_rename_requires_capability_and_matching_session(self):
+        machine, agent, generation = (str(uuid.uuid4()) for _ in range(3))
+        auth = {"Authorization": "Bearer " + rotating_token("x" * 40)}
+        browser = {
+            **self.login(),
+            "Origin": "http://localhost:8500",
+            "Content-Type": "application/json",
+        }
+        self.request(
+            "POST",
+            "/api/snapshot",
+            json.dumps(
+                {
+                    "machine_id": machine,
+                    "name": "Mac",
+                    "daemon_connected": True,
+                    "agents": [{"agent_id": agent, "source": "extension"}],
+                }
+            ),
+            auth,
+        )
+        poll = {
+            "machine": machine,
+            "agent": agent,
+            "generation": generation,
+            "session": "session-a",
+            "busy": True,
+            "messages": [],
+        }
+        self.request("POST", "/api/chat-poll", json.dumps(poll), auth)
+        rename = {
+            "machine": machine,
+            "agent": agent,
+            "generation": generation,
+            "session": "session-a",
+            "name": "Новое имя",
+        }
+        self.assertEqual(
+            self.request("POST", "/api/rename", json.dumps(rename), browser)[0], 409
+        )
+        poll["rename_supported"] = True
+        self.request("POST", "/api/chat-poll", json.dumps(poll), auth)
+        wrong = dict(rename, session="another")
+        self.assertEqual(
+            self.request("POST", "/api/rename", json.dumps(wrong), browser)[0], 409
+        )
+        self.assertEqual(
+            self.request(
+                "POST", "/api/rename", json.dumps(dict(rename, name="a\nb")), browser
+            )[0],
+            400,
+        )
+        self.assertEqual(
+            self.request("POST", "/api/rename", json.dumps(rename))[0], 403
+        )
+        status, data = self.request("POST", "/api/rename", json.dumps(rename), browser)
+        self.assertEqual(status, 202)
+        ident = json.loads(data)["id"]
+        command = json.loads(
+            self.request("POST", "/api/chat-poll", json.dumps(poll), auth)[1]
+        )["rename"]
+        self.assertEqual(
+            command, {"id": ident, "name": "Новое имя", "session": "session-a"}
+        )
+        self.assertIsNone(
+            json.loads(
+                self.request("POST", "/api/chat-poll", json.dumps(poll), auth)[1]
+            )["rename"]
+        )
+        self.assertEqual(
+            self.request("POST", "/api/rename", json.dumps(rename), browser)[0], 409
+        )
+        poll["rename_receipt"] = {"id": ident, "state": "accepted"}
+        self.request("POST", "/api/chat-poll", json.dumps(poll), auth)
+        data = json.loads(
+            self.request(
+                "GET", f"/api/chat?machine={machine}&agent={agent}", headers=browser
+            )[1]
+        )
+        self.assertEqual(data["rename"]["state"], "accepted")
+        self.assertEqual(
+            self.request("POST", "/api/rename", json.dumps(rename), browser)[0], 202
+        )
+        poll["session"] = "session-b"
+        data = json.loads(
+            self.request("POST", "/api/chat-poll", json.dumps(poll), auth)[1]
+        )
+        self.assertIsNone(data["rename"])
+        self.assertEqual(server.RENAMES[(machine, agent)]["state"], "expired")
 
     def test_launch_is_opt_in_and_delivered_at_most_once(self):
         machine = str(uuid.uuid4())

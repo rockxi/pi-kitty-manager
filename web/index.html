@@ -32,6 +32,16 @@
   <dialog id="login-dialog" aria-labelledby="login-title">
     <form id="login-form" class="login-form"><div class="brand-mark" aria-hidden="true">π</div><h2 id="login-title">Вход в Pi Kitty</h2><p>Войдите, чтобы увидеть своих агентов.</p><label for="login-name">Логин</label><input id="login-name" name="username" autocomplete="username" required><label for="login-password">Пароль</label><input id="login-password" name="password" type="password" autocomplete="current-password" required><button type="submit">Войти</button><p id="login-error" role="alert"></p></form>
   </dialog>
+  <dialog id="rename-dialog" aria-labelledby="rename-title">
+    <form id="rename-form" class="login-form">
+      <div class="chat-header"><h2 id="rename-title">Имя агента</h2><button type="button" class="chat-close" id="rename-close" aria-label="Закрыть">×</button></div>
+      <p>Имя сохранится в сессии pi и появится в списке kitty.</p>
+      <label for="rename-input">Новое имя</label><input id="rename-input" maxlength="200" required autocomplete="off">
+      <button id="rename-submit" type="submit">Сохранить имя</button>
+      <p id="rename-status" role="status"></p>
+      <button id="rename-ack" type="button" hidden>Я проверил имя — разрешить повтор</button>
+    </form>
+  </dialog>
   <dialog id="launch-dialog" aria-labelledby="launch-title">
     <form id="launch-form" class="login-form">
       <div class="chat-header"><h2 id="launch-title">Новый агент</h2><button type="button" class="chat-close" id="launch-close" aria-label="Закрыть">×</button></div>

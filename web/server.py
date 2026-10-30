@@ -13,6 +13,7 @@ import threading
 import time
 from urllib.parse import parse_qs, urlsplit
 import uuid
+import unicodedata
 from http.cookies import SimpleCookie
 
 ROOT = Path(__file__).resolve().parent
@@ -31,6 +32,7 @@ ATTEMPTS = {}
 LOCK = threading.Lock()
 MACHINES = {}
 CHATS = {}
+RENAMES = {}
 LAUNCHES = {}
 MAX_BYTES = 262144
 
@@ -174,9 +176,28 @@ class Handler(BaseHTTPRequestHandler):
             key = (query.get("machine", [""])[0], query.get("agent", [""])[0])
             with LOCK:
                 chat = CHATS.get(key)
+                rename = RENAMES.get(key)
+                if (
+                    rename
+                    and rename["state"] == "queued"
+                    and rename["expires"] <= time.time()
+                ):
+                    rename["state"] = "expired"
+                rename_status = (
+                    {"id": rename["id"], "state": rename["state"]} if rename else None
+                )
+                if (
+                    rename
+                    and rename["state"] == "unconfirmed"
+                    and time.time() - rename.get("dispatched_at", 0) < 10
+                ):
+                    rename_status["state"] = "dispatching"
                 result = {
                     "available": bool(chat and time.time() - chat["seen"] < 15),
                     "generation": chat["generation"] if chat else None,
+                    "session": chat.get("session") if chat else None,
+                    "rename_supported": bool(chat and chat.get("rename_supported")),
+                    "rename": rename_status,
                     "messages": chat["messages"] if chat else [],
                     "busy": chat["busy"] if chat else False,
                     "pending": bool(chat and chat["pending"]),
@@ -284,6 +305,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/launch",
             "/api/launch-ack",
             "/api/send",
+            "/api/rename",
+            "/api/rename-ack",
             "/api/login",
             "/api/logout",
         }:
@@ -292,6 +315,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/send",
             "/api/launch",
             "/api/launch-ack",
+            "/api/rename",
+            "/api/rename-ack",
             "/api/login",
             "/api/logout",
         }
@@ -326,6 +351,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.chat_poll(payload)
             if path == "/api/send":
                 return self.browser_send(payload)
+            if path == "/api/rename":
+                return self.browser_rename(payload)
+            if path == "/api/rename-ack":
+                return self.ack_rename(payload)
             machine_id, machine = parse_update(payload)
             with LOCK:
                 if machine_id not in MACHINES and len(MACHINES) >= 100:
@@ -418,6 +447,69 @@ class Handler(BaseHTTPRequestHandler):
                     item["dispatched_at"] = time.time()
         return self.json_response(200, {"command": command})
 
+    def browser_rename(self, data):
+        machine, agent, generation, session, name = (
+            data.get(k) for k in ("machine", "agent", "generation", "session", "name")
+        )
+        if not all(
+            isinstance(v, str) for v in (machine, agent, generation, session, name)
+        ):
+            raise ValueError("Invalid rename")
+        name = name.strip()
+        if (
+            not name
+            or len(name) > 200
+            or any(unicodedata.category(c).startswith("C") for c in name)
+        ):
+            raise ValueError("Invalid name")
+        key = (machine, agent)
+        with LOCK:
+            chat, current = CHATS.get(key), RENAMES.get(key)
+            if (
+                not chat
+                or not chat.get("rename_supported")
+                or chat["generation"] != generation
+                or chat.get("session") != session
+                or time.time() - chat["seen"] >= 15
+            ):
+                return self.json_response(
+                    409, {"error": "Agent unavailable or session changed"}
+                )
+            if (
+                current
+                and current["state"] == "queued"
+                and current["expires"] <= time.time()
+            ):
+                current["state"] = "expired"
+            if current and current["state"] in {"queued", "unconfirmed"}:
+                return self.json_response(
+                    409, {"error": "Rename pending or unconfirmed"}
+                )
+            item = {
+                "id": str(uuid.uuid4()),
+                "name": name,
+                "generation": generation,
+                "session": session,
+                "state": "queued",
+                "expires": time.time() + 20,
+            }
+            RENAMES[key] = item
+        return self.json_response(202, {"id": item["id"]})
+
+    def ack_rename(self, data):
+        key = (data.get("machine"), data.get("agent"))
+        with LOCK:
+            item = RENAMES.get(key)
+            if (
+                not item
+                or item["id"] != data.get("id")
+                or item["state"] != "unconfirmed"
+                or time.time() - item.get("dispatched_at", 0) < 10
+            ):
+                return self.json_response(409, {"error": "Rename state changed"})
+            item["state"] = "acknowledged"
+        return self.json_response(200, {"ok": True})
+
     def browser_send(self, data):
         machine, agent, generation, message = (
             data.get(k) for k in ("machine", "agent", "generation", "message")
@@ -460,6 +552,13 @@ class Handler(BaseHTTPRequestHandler):
         generation = str(uuid.UUID(data.get("generation", "")))
         messages = data.get("messages")
         busy = data.get("busy")
+        session = data.get("session")
+        rename_supported = data.get("rename_supported", False)
+        if type(rename_supported) is not bool or (
+            rename_supported
+            and (not isinstance(session, str) or not session or len(session) > 100)
+        ):
+            raise ValueError("Invalid rename capability")
         if (
             type(busy) is not bool
             or not isinstance(messages, list)
@@ -519,8 +618,37 @@ class Handler(BaseHTTPRequestHandler):
                 delivery = {"id": command["id"], "state": "unconfirmed"}
             elif pending and pending["expires"] <= time.time():
                 delivery = {"id": pending["id"], "state": "expired"}
+            rename = RENAMES.get(key)
+            rename_receipt = data.get("rename_receipt")
+            if (
+                rename
+                and isinstance(rename_receipt, dict)
+                and rename_receipt.get("id") == rename["id"]
+                and rename_receipt.get("state") in {"accepted", "rejected"}
+                and rename["state"] == "unconfirmed"
+                and rename["generation"] == generation
+            ):
+                rename["state"] = rename_receipt["state"]
+            rename_command = None
+            if rename and rename["state"] == "queued":
+                if (
+                    rename["expires"] <= time.time()
+                    or rename["generation"] != generation
+                    or rename["session"] != session
+                ):
+                    rename["state"] = "expired"
+                elif rename_supported:
+                    rename_command = {
+                        "id": rename["id"],
+                        "name": rename["name"],
+                        "session": rename["session"],
+                    }
+                    rename["state"] = "unconfirmed"
+                    rename["dispatched_at"] = time.time()
             CHATS[key] = {
                 "generation": generation,
+                "session": session,
+                "rename_supported": rename_supported,
                 "messages": safe,
                 "seen": time.time(),
                 "busy": busy,
@@ -529,7 +657,7 @@ class Handler(BaseHTTPRequestHandler):
                 if command or (pending and pending["expires"] <= time.time())
                 else pending,
             }
-        return self.json_response(200, {"message": command})
+        return self.json_response(200, {"message": command, "rename": rename_command})
 
 
 def main():

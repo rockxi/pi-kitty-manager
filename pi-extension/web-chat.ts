@@ -20,6 +20,7 @@ export class WebChat {
   private timer?: ReturnType<typeof setTimeout>;
   private abort?: AbortController;
   private receipt?: {id: string; state: "accepted" | "rejected"};
+  private renameReceipt?: {id: string; state: "accepted" | "rejected"};
   constructor(private pi: ExtensionAPI, private ctx: ExtensionContext, private agent: string, private generation: string) {}
 
   start() {
@@ -56,12 +57,26 @@ export class WebChat {
       timeout.unref();
       try {
         const receipt = this.receipt;
+        const renameReceipt = this.renameReceipt;
+        const session = this.ctx.sessionManager.getSessionId();
         const epoch = Math.floor(Date.now() / 300000);
         const rotated = `v1.${epoch}.${createHmac("sha256", token).update(String(epoch)).digest("hex")}`;
-        const response = await fetch(base + "/api/chat-poll", {method: "POST", redirect: "error", signal: this.abort.signal, headers: {Authorization: `Bearer ${rotated}`, "Content-Type": "application/json"}, body: JSON.stringify({machine, agent: this.agent, generation: this.generation, busy: !this.ctx.isIdle(), messages, receipt})});
+        const response = await fetch(base + "/api/chat-poll", {method: "POST", redirect: "error", signal: this.abort.signal, headers: {Authorization: `Bearer ${rotated}`, "Content-Type": "application/json"}, body: JSON.stringify({machine, agent: this.agent, generation: this.generation, session, rename_supported: true, busy: !this.ctx.isIdle(), messages, receipt, rename_receipt: renameReceipt})});
         if (!response.ok) return;
-        const result = await response.json() as {message?: {id?: unknown; text?: unknown} | null};
+        const result = await response.json() as {message?: {id?: unknown; text?: unknown} | null; rename?: {id?: unknown; name?: unknown; session?: unknown} | null};
         if (this.receipt === receipt) this.receipt = undefined;
+        if (this.renameReceipt === renameReceipt) this.renameReceipt = undefined;
+        const rename = result.rename;
+        if (rename && typeof rename.id === "string" && typeof rename.name === "string") {
+          let state: "accepted" | "rejected" = "rejected";
+          try {
+            if (this.active && rename.session === session && this.ctx.sessionManager.getSessionId() === session && rename.name.trim() && [...rename.name].length <= 200 && !/\p{C}/u.test(rename.name)) {
+              this.pi.setSessionName(rename.name);
+              state = "accepted";
+            }
+          } catch { /* Report failure rather than retrying. */ }
+          this.renameReceipt = {id: rename.id, state};
+        }
         const command = result.message;
         if (command && typeof command.id === "string" && typeof command.text === "string") {
           let state: "accepted" | "rejected" = "rejected";

@@ -8,3 +8,7 @@
 #launch-ack { background: var(--grey-bg); color: var(--text); }
 #launch-submit:disabled { opacity: .5; cursor: not-allowed; }
 @media (max-width: 720px) { .machine-actions { gap: 7px; } }
+/* Busy remains labelled in text; the animation is supplementary. */
+.badge.busy .badge-dot { width: 11px; height: 11px; background: transparent; border: 2px solid currentColor; border-right-color: transparent; animation: agent-spin .8s linear infinite; }
+@keyframes agent-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .badge.busy .badge-dot { animation: none; border-right-color: currentColor; } }
