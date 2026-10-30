@@ -110,14 +110,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def send_data(self, status, content_type, data):
         self.response_headers(status, content_type, len(data))
-        self.wfile.write(data)
+        if self.command != "HEAD":
+            self.wfile.write(data)
 
     def json_response(self, status, obj, cookie=None):
         data = json.dumps(obj, ensure_ascii=False).encode()
         self.response_headers(
             status, "application/json; charset=utf-8", len(data), cookie
         )
-        self.wfile.write(data)
+        if self.command != "HEAD":
+            self.wfile.write(data)
 
     def valid_host(self):
         host = self.headers.get("Host", "").lower()
@@ -165,6 +167,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_response(404, {"error": "Not found"})
         name, kind = files[path]
         self.send_data(200, kind, (ROOT / name).read_bytes())
+
+    def do_HEAD(self):
+        return self.do_GET()
 
     def browser_authorized(self):
         cookie = SimpleCookie()

@@ -77,6 +77,9 @@ class WebTests(unittest.TestCase):
         return {"Cookie": cookie}
 
     def test_auth_host_update_and_offline(self):
+        self.assertEqual(self.request("HEAD", "/")[0], 200)
+        self.assertEqual(self.request("HEAD", "/healthz")[0], 200)
+        self.assertEqual(self.request("HEAD", "/api/machines")[0], 401)
         ident = str(uuid.uuid4())
         body = json.dumps(
             {
