@@ -111,7 +111,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Set-Cookie", cookie)
         self.send_header(
             "Content-Security-Policy",
-            "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'",
+            "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'",
         )
         self.end_headers()
 
@@ -210,6 +210,8 @@ class Handler(BaseHTTPRequestHandler):
             "/style.css": ("style.css", "text/css; charset=utf-8"),
             "/chat.css": ("chat.css", "text/css; charset=utf-8"),
             "/launch.css": ("launch.css", "text/css; charset=utf-8"),
+            "/glass.css": ("glass.css", "text/css; charset=utf-8"),
+            "/glass.js": ("glass.js", "text/javascript; charset=utf-8"),
         }
         if path not in files:
             return self.json_response(404, {"error": "Not found"})
