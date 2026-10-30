@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { WebChat } from "./web-chat";
 import { randomUUID } from "node:crypto";
 import { lstatSync, statSync } from "node:fs";
 import { homedir } from "node:os";
@@ -187,12 +188,16 @@ class Reporter {
 
 export default function (pi: ExtensionAPI) {
   let reporter: Reporter | undefined;
+  let webChat: WebChat | undefined;
   pi.on("session_start", (_event, ctx) => {
+    webChat?.stop();
     reporter?.stop();
     reporter = new Reporter(ctx);
     reporter.start();
+    webChat = new WebChat(pi, ctx, reporter.agentId, reporter.generation);
+    webChat.start();
   });
-  pi.on("session_shutdown", () => { reporter?.stop(); reporter = undefined; });
+  pi.on("session_shutdown", () => { webChat?.stop(); webChat = undefined; reporter?.stop(); reporter = undefined; });
   pi.on("before_agent_start", (_event, ctx) => {
     if (reporter) { reporter.phase = "starting"; reporter.changed(ctx); }
   });

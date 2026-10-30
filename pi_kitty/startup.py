@@ -13,6 +13,44 @@ import time
 from .common import Client, Error, secure_dir, socket_path
 
 
+def ensure_web_client(config: dict[str, str]) -> bool:
+    """Start an opt-in, single-instance web bridge from kitty's env options."""
+    token = config.get("PI_KITTY_WEB_TOKEN_FILE", "").strip()
+    if not token:
+        return False
+    root = str(Path(__file__).resolve().parent.parent)
+    args = ["--token-file", os.path.expanduser(os.path.expandvars(token))]
+    if config.get("PI_KITTY_WEB_SERVER"):
+        args.extend(["--server", config["PI_KITTY_WEB_SERVER"]])
+    if config.get("PI_KITTY_WEB_NAME"):
+        args.extend(["--name", config["PI_KITTY_WEB_NAME"]])
+    if Path(sys.executable).name.lower() in {"kitty", "kitty.exe"}:
+        code = (
+            f"import sys; sys.path.insert(0, {root!r}); "
+            f"sys.argv = {['pi-kitty-web-client', *args]!r}; "
+            "from pi_kitty.web_client import main; main()"
+        )
+        launch = [sys.executable, "+runpy", code]
+    else:
+        launch = [sys.executable, "-m", "pi_kitty.web_client", *args]
+    env = {
+        **os.environ,
+        "PYTHONPATH": root + os.pathsep + os.environ.get("PYTHONPATH", ""),
+    }
+    process = subprocess.Popen(
+        launch,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    threading.Thread(
+        target=process.wait, name="pi-kitty-web-reaper", daemon=True
+    ).start()
+    return True
+
+
 def ensure(endpoint: str | None = None, command: str | None = None) -> dict:
     path = socket_path()
     client = Client(path, timeout=1)

@@ -1,0 +1,22 @@
+services:
+  dashboard:
+    build:
+      context: .
+      args:
+        PYTHON_IMAGE: ${PI_KITTY_PYTHON_IMAGE:-python:3.12-alpine}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8500:8500"
+    environment:
+      PI_KITTY_WEB_TOKEN: ${PI_KITTY_WEB_TOKEN:?Create .env with PI_KITTY_WEB_TOKEN}
+      PI_KITTY_WEB_PREVIOUS_TOKEN: ${PI_KITTY_WEB_PREVIOUS_TOKEN:-}
+      PI_KITTY_WEB_PREVIOUS_UNTIL: ${PI_KITTY_WEB_PREVIOUS_UNTIL:-0}
+      ADMIN_LOGIN: ${admin_login:?Set admin_login in .env}
+      ADMIN_PASSWORD: ${admin_password:?Set admin_password in .env}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8500}
+      TRUST_PROXY: ${TRUST_PROXY:-0}
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

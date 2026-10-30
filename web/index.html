@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Pi Kitty — агенты</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/chat.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" aria-label="Навигация">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">π</span><div><strong>Pi Kitty</strong><small>Agent workspace</small></div></div>
+      <div class="nav-title">ПРОСТРАНСТВО</div>
+      <button class="nav-item selected" id="all-machines" type="button"><span class="nav-symbol" aria-hidden="true">▦</span><span>Все агенты</span><span class="nav-count" id="nav-count">0</span></button>
+      <div class="sidebar-section"><div class="nav-title">КОМПЬЮТЕРЫ</div><div id="machines-nav"></div></div>
+      <div class="sidebar-bottom"><span class="privacy-dot"></span><div><strong>Защищённый доступ</strong><button type="button" id="logout" class="logout">Выйти</button></div></div>
+    </aside>
+    <main>
+      <header class="topbar"><div class="breadcrumb">Пространство <span>›</span> <strong id="crumb">Все агенты</strong></div><div class="connection" id="connection" role="status"><span class="connection-dot"></span><span>Подключение…</span></div></header>
+      <div class="content">
+        <div class="page-heading"><div><p class="eyebrow">ОБЗОР</p><h1 id="page-title">Все агенты</h1><p class="subtitle" id="subtitle">Ваши pi-агенты в одном месте.</p></div><div class="summary" id="summary" aria-live="polite"></div></div>
+        <div class="toolbar"><label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Поиск по имени, папке или модели" aria-label="Поиск по имени, папке или модели" autocomplete="off"><kbd>/</kbd></label><span class="toolbar-label">Группировка по компьютерам</span></div>
+        <div id="content" aria-live="polite"></div>
+        <footer><span>PI KITTY <span class="footer-sep">/</span> WORKSPACE</span><span>Обновляется автоматически</span></footer>
+      </div>
+    </main>
+  </div>
+  <dialog id="login-dialog" aria-labelledby="login-title">
+    <form id="login-form" class="login-form"><div class="brand-mark" aria-hidden="true">π</div><h2 id="login-title">Вход в Pi Kitty</h2><p>Войдите, чтобы увидеть своих агентов.</p><label for="login-name">Логин</label><input id="login-name" name="username" autocomplete="username" required><label for="login-password">Пароль</label><input id="login-password" name="password" type="password" autocomplete="current-password" required><button type="submit">Войти</button><p id="login-error" role="alert"></p></form>
+  </dialog>
+  <dialog id="chat-dialog" aria-labelledby="chat-title">
+    <div class="chat-header"><div><p class="eyebrow">ДИАЛОГ</p><h2 id="chat-title"></h2><p id="chat-computer"></p></div><button type="button" class="chat-close" id="chat-close" aria-label="Закрыть диалог">×</button></div>
+    <div id="chat-view"><div id="chat-status" role="status"></div><div id="chat-messages" aria-live="polite"></div><form id="chat-form"><label for="chat-input">Сообщение агенту</label><textarea id="chat-input" maxlength="4000" rows="3" placeholder="Напишите сообщение…"></textarea><div class="chat-actions"><span>Ответ появится после завершения сообщения</span><button type="submit" id="chat-send">Отправить</button></div></form></div>
+    <p id="chat-error" role="alert"></p>
+  </dialog>
+</body>
+</html>

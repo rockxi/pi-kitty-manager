@@ -7,3 +7,4 @@ dist/
 node_modules/
 .ruff_cache/
 .DS_Store
+.env
