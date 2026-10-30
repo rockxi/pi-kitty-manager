@@ -1,3 +1,16 @@
+/* Chat is a navigable workspace, not a modal. */
+.chat-page { max-width: 1040px; margin: 0 auto; padding: 42px 54px 32px; min-height: calc(100vh - 67px); display: flex; flex-direction: column; }
+.chat-page .chat-header { align-items: center; padding-bottom: 22px; border-bottom: 1px solid var(--line); }
+.chat-page #chat-view { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.chat-page #chat-status { flex: none; }
+.chat-page #chat-messages { flex: 1; min-height: 250px; max-height: none; max-height: calc(100vh - 390px); }
+.chat-page #chat-form { flex: none; }
+.slash-list { margin-top: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); max-height: 230px; overflow-y: auto; }
+.slash-option { display: flex; gap: 12px; align-items: baseline; width: 100%; text-align: left; padding: 10px 12px; border: 0; background: transparent; color: var(--text); font-size: 12px; }
+.slash-option[aria-selected="true"], .slash-option:hover { background: var(--selected); }
+.slash-option strong { flex: none; font-size: 12px; }
+.slash-option span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 720px) { .chat-page { min-height: calc(100vh - 54px); padding: 26px 20px; } .chat-page #chat-messages { max-height: 52vh; } .chat-page .chat-header { align-items: flex-start; } }
 /* Rendered conversation content and image attachments. */
 .chat-message { min-width: 0; }
 .markdown { font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }

@@ -42,6 +42,27 @@ test('opt-in chat sends active branch and accepts a command once', async () => {
   } finally { chat.stop(); global.fetch = originalFetch; process.env = old; fs.rmSync(folder, {recursive:true,force:true}); }
 });
 
+test('slash dispatch requires a listed command and explicitly expands templates', async () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-slash-'));
+  const old = {...process.env}; const originalFetch = global.fetch;
+  fs.mkdirSync(path.join(folder, 'pi-kitty/web-client'), {recursive:true});
+  fs.writeFileSync(path.join(folder, 'pi-kitty/web-client/machine-id'), 'a-machine');
+  const token = path.join(folder, '.env'); fs.writeFileSync(token, 'PI_KITTY_WEB_TOKEN=' + 'x'.repeat(40));
+  process.env.XDG_CONFIG_HOME = folder; process.env.PI_KITTY_WEB_TOKEN_FILE = token; process.env.PI_KITTY_WEB_CHAT = '1';
+  const requests = [], sent = [];
+  global.fetch = async (url, options) => { requests.push(JSON.parse(options.body)); return {ok:true,json:async()=>({message:requests.length === 1 ? {id:'slash-id',text:'/skill:test args',session:'session-a',slash:true} : null})}; };
+  const {WebChat} = await jiti.import(path.join(__dirname, '../pi-extension/web-chat.ts'));
+  const ctx = {isIdle:()=>true,sessionManager:{getSessionId:()=> 'session-a',getBranch:()=>[]}};
+  const pi = {getCommands:()=>[{name:'skill:test',description:'test',source:'skill'}],sendUserMessage:(...args)=>sent.push(args)};
+  const chat = new WebChat(pi,ctx,'agent','generation');
+  try {
+    chat.start(); for (let i=0; i<70 && requests.length<2; i++) await wait(50);
+    assert.equal(requests[0].commands_supported,true); assert.equal(requests[0].commands[0].name,'skill:test');
+    assert.equal(sent[0][0],'/skill:test args'); assert.equal(sent[0][1].expandPromptTemplates,true);
+    assert.deepEqual(requests[1].receipt,{id:'slash-id',state:'accepted'}); assert.equal(sent.length,1);
+  } finally {chat.stop(); global.fetch=originalFetch; process.env=old; fs.rmSync(folder,{recursive:true,force:true});}
+});
+
 test('image commands are delivered once to the intended session through the pi API', async () => {
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-image-'));
   const old = {...process.env}; const originalFetch = global.fetch;

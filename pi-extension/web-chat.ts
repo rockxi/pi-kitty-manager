@@ -53,6 +53,7 @@ export class WebChat {
         const image_count = typeof message.content === "string" ? 0 : Math.min(100, message.content.filter(block => block.type === "image").length);
         return {role: message.role, text: text.slice(0, 8000), image_count};
       }).filter((entry): entry is {role: "user" | "assistant", text: string, image_count: number} => !!entry && (!!entry.text || !!entry.image_count)).slice(-30);
+      const commands = (typeof this.pi.getCommands === "function" ? this.pi.getCommands() : []).filter(command => /^[a-zA-Z0-9_:.\-]{1,120}$/.test(command.name)).slice(0, 250).map(command => ({name: command.name, description: (command.description || "").slice(0, 200), source: command.source}));
       this.abort = new AbortController();
       const timeout = setTimeout(() => this.abort?.abort(), 30000);
       timeout.unref();
@@ -62,9 +63,9 @@ export class WebChat {
         const session = this.ctx.sessionManager.getSessionId();
         const epoch = Math.floor(Date.now() / 300000);
         const rotated = `v1.${epoch}.${createHmac("sha256", token).update(String(epoch)).digest("hex")}`;
-        const response = await fetch(base + "/api/chat-poll", {method: "POST", redirect: "error", signal: this.abort.signal, headers: {Authorization: `Bearer ${rotated}`, "Content-Type": "application/json"}, body: JSON.stringify({machine, agent: this.agent, generation: this.generation, session, rename_supported: true, image_supported: true, busy: !this.ctx.isIdle(), messages, receipt, rename_receipt: renameReceipt})});
+        const response = await fetch(base + "/api/chat-poll", {method: "POST", redirect: "error", signal: this.abort.signal, headers: {Authorization: `Bearer ${rotated}`, "Content-Type": "application/json"}, body: JSON.stringify({machine, agent: this.agent, generation: this.generation, session, rename_supported: true, image_supported: true, commands_supported: true, commands, busy: !this.ctx.isIdle(), messages, receipt, rename_receipt: renameReceipt})});
         if (!response.ok) return;
-        const result = await response.json() as {message?: {id?: unknown; text?: unknown; images?: unknown; session?: unknown} | null; rename?: {id?: unknown; name?: unknown; session?: unknown} | null};
+        const result = await response.json() as {message?: {id?: unknown; text?: unknown; images?: unknown; session?: unknown; slash?: unknown} | null; rename?: {id?: unknown; name?: unknown; session?: unknown} | null};
         if (this.receipt === receipt) this.receipt = undefined;
         if (this.renameReceipt === renameReceipt) this.renameReceipt = undefined;
         const rename = result.rename;
@@ -89,9 +90,12 @@ export class WebChat {
               if (!image || image.type !== "image" || !["image/png", "image/jpeg", "image/webp"].includes(image.mimeType) || typeof image.data !== "string" || image.data.length > 6*1024*1024 || !/^[A-Za-z0-9+/]*={0,2}$/.test(image.data)) throw new Error("Invalid image");
               bytes += Buffer.byteLength(image.data, "base64");
             }
-            if (this.active && this.ctx.isIdle() && this.ctx.sessionManager.getSessionId() === session && (!images.length || command.session === session) && bytes <= 4*1024*1024 && (command.text.trim() || images.length) && command.text.length <= 4000) {
+            const slash = command.slash === true;
+            const commandName = slash ? command.text.trim().split(/\s+/, 1)[0].slice(1) : "";
+            if (slash && (images.length || command.session !== session || !commands.some(item => item.name === commandName))) throw new Error("Invalid slash command");
+            if (this.active && this.ctx.isIdle() && this.ctx.sessionManager.getSessionId() === session && (!(images.length || slash) || command.session === session) && bytes <= 4*1024*1024 && (command.text.trim() || images.length) && command.text.length <= 4000) {
               const content = images.length ? [...(command.text.trim() ? [{type: "text" as const, text: command.text}] : []), ...images.map(image => ({type: "image" as const, mimeType: image.mimeType as string, data: image.data as string}))] : command.text;
-              this.pi.sendUserMessage(content, {expandPromptTemplates: false});
+              this.pi.sendUserMessage(content, {expandPromptTemplates: slash});
               state = "accepted";
             }
           } catch { /* Report failure rather than retrying the command. */ }

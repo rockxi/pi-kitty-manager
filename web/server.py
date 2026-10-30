@@ -249,6 +249,8 @@ class Handler(BaseHTTPRequestHandler):
                     "session": chat.get("session") if chat else None,
                     "rename_supported": bool(chat and chat.get("rename_supported")),
                     "image_supported": bool(chat and chat.get("image_supported")),
+                    "commands_supported": bool(chat and chat.get("commands_supported")),
+                    "commands": chat.get("commands", []) if chat else [],
                     "rename": rename_status,
                     "messages": chat["messages"] if chat else [],
                     "busy": chat["busy"] if chat else False,
@@ -586,6 +588,18 @@ class Handler(BaseHTTPRequestHandler):
         )
         images, image_bytes = validate_images(data.get("images", []))
         session = data.get("session")
+        slash = data.get("slash", False)
+        if type(slash) is not bool or (
+            slash
+            and (
+                images
+                or not isinstance(message, str)
+                or not message.startswith("/")
+                or not isinstance(session, str)
+                or not session
+            )
+        ):
+            raise ValueError("Invalid slash command")
         if (
             not all(isinstance(v, str) for v in (machine, agent, generation, message))
             or not (message.strip() or images)
@@ -603,6 +617,17 @@ class Handler(BaseHTTPRequestHandler):
             ):
                 return self.json_response(
                     409, {"error": "Agent unavailable or session changed"}
+                )
+            if slash and (
+                not chat.get("commands_supported")
+                or chat.get("session") != session
+                or not any(
+                    c["name"] == message.split(None, 1)[0][1:]
+                    for c in chat.get("commands", [])
+                )
+            ):
+                return self.json_response(
+                    409, {"error": "Command unavailable or session changed"}
                 )
             if images and (
                 not chat.get("image_supported") or chat.get("session") != session
@@ -634,7 +659,8 @@ class Handler(BaseHTTPRequestHandler):
                 "text": message,
                 "images": images,
                 "image_bytes": image_bytes,
-                "session": session if images else None,
+                "session": session if images or slash else None,
+                "slash": slash,
                 "expires": time.time() + 20,
             }
             chat["delivery"] = {"id": chat["pending"]["id"], "state": "queued"}
@@ -649,6 +675,40 @@ class Handler(BaseHTTPRequestHandler):
         session = data.get("session")
         rename_supported = data.get("rename_supported", False)
         image_supported = data.get("image_supported", False)
+        commands_supported = data.get("commands_supported", False)
+        commands = data.get("commands", [])
+        if (
+            type(commands_supported) is not bool
+            or not isinstance(commands, list)
+            or len(commands) > 250
+            or (
+                commands_supported
+                and (not isinstance(session, str) or not session or len(session) > 100)
+            )
+        ):
+            raise ValueError("Invalid commands capability")
+        safe_commands = []
+        for command in commands:
+            if (
+                not isinstance(command, dict)
+                or not isinstance(command.get("name"), str)
+                or not 1 <= len(command["name"]) <= 120
+                or not all(
+                    c.isascii() and (c.isalnum() or c in "_:.-")
+                    for c in command["name"]
+                )
+                or not isinstance(command.get("description"), str)
+                or len(command["description"]) > 200
+                or command.get("source") not in {"extension", "skill", "prompt"}
+            ):
+                raise ValueError("Invalid command")
+            safe_commands.append(
+                {
+                    "name": command["name"],
+                    "description": command["description"],
+                    "source": command["source"],
+                }
+            )
         if type(image_supported) is not bool or (
             image_supported
             and (not isinstance(session, str) or not session or len(session) > 100)
@@ -707,18 +767,33 @@ class Handler(BaseHTTPRequestHandler):
             )
             session_changed = bool(
                 pending
-                and pending.get("images")
-                and (not image_supported or pending.get("session") != session)
+                and (pending.get("images") or pending.get("slash"))
+                and (
+                    pending.get("session") != session
+                    or (pending.get("images") and not image_supported)
+                    or (
+                        pending.get("slash")
+                        and (
+                            not commands_supported
+                            or not any(
+                                c["name"] == pending["text"].split(None, 1)[0][1:]
+                                for c in safe_commands
+                            )
+                        )
+                    )
+                )
             )
             command = (
                 {
                     "id": pending["id"],
                     "text": pending["text"],
+                    **({"images": pending["images"]} if pending.get("images") else {}),
                     **(
-                        {"images": pending["images"], "session": pending["session"]}
-                        if pending.get("images")
+                        {"session": pending["session"]}
+                        if pending.get("images") or pending.get("slash")
                         else {}
                     ),
+                    **({"slash": True} if pending.get("slash") else {}),
                 }
                 if pending
                 and pending["expires"] > time.time()
@@ -775,6 +850,8 @@ class Handler(BaseHTTPRequestHandler):
                 "session": session,
                 "rename_supported": rename_supported,
                 "image_supported": image_supported,
+                "commands_supported": commands_supported,
+                "commands": safe_commands,
                 "messages": safe,
                 "seen": time.time(),
                 "busy": busy,

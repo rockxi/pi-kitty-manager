@@ -43,7 +43,7 @@ function drawNavigation() {
     button.type = 'button';
     button.setAttribute('aria-current', selected === machine.id ? 'page' : 'false');
     button.append(make('span', 'nav-symbol', '▣'), make('span', 'nav-name', machine.name), make('span', `machine-dot ${machineState(machine)[0]}`));
-    button.addEventListener('click', () => { selected = machine.id; render(); });
+    button.addEventListener('click', () => { closeChat(); selected = machine.id; render(); });
     nav.append(button);
   }
 }
@@ -112,7 +112,7 @@ function render() {
   drawNavigation();
   const chosen = machines.find(m => m.id === selected);
   const title = chosen ? chosen.name : 'Все агенты';
-  $('#crumb').textContent = title;
+  $('#crumb').textContent = currentChat ? ($('#chat-title').textContent || 'Диалог') : title;
   $('#page-title').textContent = title;
   const online = machines.filter(m => m.online && m.daemon_connected);
   const active = online.reduce((n,m) => n + m.agents.length, 0);
@@ -149,8 +149,9 @@ async function refresh() {
     serverConnected = true;
   } catch { serverConnected = false; }
   render();
+  syncChatRoute();
 }
-$('#all-machines').addEventListener('click', () => { selected = null; render(); });
+$('#all-machines').addEventListener('click', () => { closeChat(); selected = null; render(); });
 $('#search').addEventListener('input', (event) => { query = event.target.value; render(); });
 document.addEventListener('keydown', (event) => {
   if (event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey && !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) { event.preventDefault(); $('#search').focus(); }
@@ -260,6 +261,9 @@ let currentChat = null;
 let chatGeneration = null;
 let chatSession = null;
 let chatImageSupported = false;
+let chatCommandsSupported = false;
+let chatCommands = [];
+let slashIndex = 0;
 let chatReading = false;
 let chatSending = false;
 let chatAttachments = [];
@@ -302,15 +306,18 @@ function markdownContent(text) {
 }
 let chatMessages = '';
 let chatPolling = false;
-function openChat(machine, agent) {
+function openChat(machine, agent, navigate = true) {
   currentChat = {machine: machine.id, agent: agent.agent_id};
+  if (navigate) history.pushState(null, '', '#/chat?' + new URLSearchParams(currentChat));
+  $('#dashboard-view').hidden = true; $('#chat-page').hidden = false;
   chatGeneration = null; chatSession = null; chatImageSupported = false; chatAttachments = []; renderAttachments();
   chatMessages = '';
   $('#chat-title').textContent = agent.session_name || 'Без названия';
   $('#chat-computer').textContent = machine.name;
   $('#chat-error').textContent = '';
   $('#chat-messages').replaceChildren();
-  $('#chat-dialog').showModal();
+  document.title = `${agent.session_name || 'Диалог'} — Pi Kitty`;
+  $('#crumb').textContent = agent.session_name || 'Диалог';
   refreshChat();
 }
 async function refreshChat() {
@@ -320,7 +327,7 @@ async function refreshChat() {
   try {
     const params = new URLSearchParams(selectedChat);
     const response = await fetch('/api/chat?' + params, {cache: 'no-store'});
-    if (response.status === 401) { $('#chat-dialog').close(); showLogin(); return; }
+    if (response.status === 401) { showLogin(); return; }
     if (!response.ok) throw new Error('Не удалось загрузить диалог.');
     const data = await response.json();
     if (selectedChat !== currentChat) return;
@@ -328,6 +335,7 @@ async function refreshChat() {
       chatAttachments = []; renderAttachments(); $('#chat-error').textContent = 'Сессия изменилась. Прикрепите изображения заново.';
     }
     chatGeneration = data.generation; chatSession = data.session; chatImageSupported = data.image_supported === true;
+    chatCommandsSupported = data.commands_supported === true; chatCommands = data.commands || []; renderSlashSuggestions();
     const delivery = data.delivery?.state;
     $('#chat-status').textContent = !data.available ? 'Диалог недоступен. Включите веб-чат в kitty и перезапустите pi.' : data.pending ? 'Сообщение ожидает передачи…' : delivery === 'unconfirmed' ? 'Передача не подтверждена. Не отправляйте повторно, пока не проверите диалог.' : delivery === 'rejected' ? 'Агент не принял сообщение. Проверьте его состояние.' : delivery === 'expired' ? 'Время доставки истекло. Сообщение не передано.' : data.busy ? 'Агент работает…' : delivery === 'accepted' ? 'Сообщение принято агентом.' : 'Агент готов';
     $('#chat-send').disabled = !data.available || data.busy || data.pending || delivery === 'unconfirmed' || chatReading || chatSending;
@@ -350,23 +358,65 @@ async function refreshChat() {
   } catch (error) { $('#chat-error').textContent = error.message || 'Нет связи с сервером.'; }
   finally { chatPolling = false; }
 }
-$('#chat-close').addEventListener('click', () => $('#chat-dialog').close());
-$('#chat-dialog').addEventListener('close', () => { currentChat = null; chatGeneration = null; chatSession = null; chatAttachments = []; renderAttachments(); $('#chat-image-input').value = ''; });
+function closeChat(navigate = true) {
+  if (!currentChat && !location.hash.startsWith('#/chat?')) return;
+  currentChat = null; chatGeneration = null; chatSession = null; chatAttachments = []; renderAttachments(); $('#chat-image-input').value = '';
+  $('#chat-page').hidden = true; $('#dashboard-view').hidden = false; document.title = 'Pi Kitty — агенты';
+  if (navigate) history.pushState(null, '', location.pathname + location.search);
+  render();
+}
+function syncChatRoute() {
+  if (!location.hash.startsWith('#/chat?')) { if (currentChat) closeChat(false); return; }
+  const params = new URLSearchParams(location.hash.slice(7));
+  const machine = machines.find(item => item.id === params.get('machine'));
+  const agent = machine?.agents.find(item => item.agent_id === params.get('agent'));
+  if (machine && agent && (!currentChat || currentChat.machine !== machine.id || currentChat.agent !== agent.agent_id)) openChat(machine, agent, false);
+}
+window.addEventListener('popstate', syncChatRoute);
+$('#chat-close').addEventListener('click', () => closeChat());
+function renderSlashSuggestions() {
+  const list = $('#slash-list'); const input = $('#chat-input'); const match = /^\/([^\s]*)$/.exec(input.value);
+  list.replaceChildren();
+  if (!match || !chatCommandsSupported) { list.hidden = true; return; }
+  const choices = chatCommands.filter(command => command.name.toLowerCase().includes(match[1].toLowerCase())).slice(0, 12);
+  if (!choices.length) { list.hidden = true; return; }
+  slashIndex = Math.min(slashIndex, choices.length - 1); list.hidden = false;
+  choices.forEach((command, index) => {
+    const button = make('button', 'slash-option'); button.type = 'button'; button.setAttribute('role','option'); button.setAttribute('aria-selected', String(index === slashIndex));
+    button.append(make('strong', '', '/' + command.name), make('span', '', command.description || command.source));
+    button.addEventListener('click', () => { input.value = '/' + command.name + ' '; list.hidden = true; input.focus(); }); list.append(button);
+  });
+}
+$('#chat-input').addEventListener('input', () => { slashIndex = 0; renderSlashSuggestions(); });
+$('#chat-input').addEventListener('keydown', event => {
+  const list = $('#slash-list'); if (list.hidden) return;
+  const choices = list.querySelectorAll('button');
+  if (event.key === 'Escape') { event.preventDefault(); list.hidden = true; }
+  else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); slashIndex = (slashIndex + (event.key === 'ArrowDown' ? 1 : -1) + choices.length) % choices.length; renderSlashSuggestions(); }
+  else if (event.key === 'Tab' || event.key === 'Enter') { event.preventDefault(); choices[slashIndex]?.click(); }
+});
 $('#chat-attach').addEventListener('click', () => $('#chat-image-input').click());
 $('#chat-image-input').addEventListener('change', event => { addImages(event.target.files); event.target.value = ''; });
-$('#chat-input').addEventListener('paste', event => {
+document.addEventListener('paste', event => {
+  if (!currentChat || $('#chat-page').hidden || (event.target !== $('#chat-input') && event.target?.closest?.('input,textarea,[contenteditable="true"]'))) return;
   const files = Array.from(event.clipboardData?.items || []).filter(item => item.kind === 'file' && item.type.startsWith('image/')).map(item => item.getAsFile()).filter(Boolean);
-  if (files.length) { event.preventDefault(); addImages(files); }
+  if (!files.length) return;
+  event.preventDefault();
+  if (!chatImageSupported) { $('#chat-error').textContent = 'Для вставки изображений обновите расширение и выполните /reload в pi.'; return; }
+  addImages(files);
 });
 $('#chat-form').addEventListener('submit', async event => {
   event.preventDefault();
   const input = $('#chat-input'); const message = input.value.trim();
   if ((!message && !chatAttachments.length) || !currentChat || !chatGeneration || chatReading || chatSending) return;
+  const slash = message.startsWith('/');
+  if (slash && (!chatCommandsSupported || !chatCommands.some(command => command.name === message.split(/\s+/, 1)[0].slice(1)))) { $('#chat-error').textContent = chatCommandsSupported ? 'Команда недоступна для выполнения через веб-чат. Встроенные команды доступны в kitty.' : 'Для команд обновите расширение и выполните /reload в pi.'; return; }
+  if (slash && chatAttachments.length) { $('#chat-error').textContent = 'Команды нельзя отправлять вместе с изображениями.'; return; }
   const target = currentChat; chatSending = true;
   $('#chat-send').disabled = true; $('#chat-attach').disabled = true; $('#chat-error').textContent = '';
   try {
     const images = chatAttachments.map(({type,mimeType,data}) => ({type,mimeType,data}));
-    const response = await fetch('/api/send', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({...target, generation: chatGeneration, session:chatSession, message, images})});
+    const response = await fetch('/api/send', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({...target, generation: chatGeneration, session:chatSession, message, images, slash})});
     if (!response.ok) throw new Error(response.status === 409 ? 'Агент занят, сессия изменилась или нужно обновить расширение.' : response.status === 413 ? 'Изображения слишком большие.' : 'Не удалось отправить сообщение.');
     if (target !== currentChat) return;
     input.value = ''; chatAttachments = []; renderAttachments(); $('#chat-status').textContent = 'Сообщение ожидает передачи…';
@@ -391,7 +441,7 @@ $('#login-form').addEventListener('submit', async event => {
 });
 $('#logout').addEventListener('click', async () => {
   await fetch('/api/logout', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
-  if ($('#chat-dialog').open) $('#chat-dialog').close();
+  closeChat();
   showLogin();
 });
 refresh();
