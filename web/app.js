@@ -230,7 +230,7 @@ async function refreshRename() {
     const data = await response.json(); if (target !== renameTarget) return;
     renameInfo = data;
     const state = data.rename?.state;
-    const statuses = {queued:'Ожидаем передачи агенту…', dispatching:'Сохраняем имя…', unconfirmed:'Сохранение не подтверждено. Проверьте имя в kitty перед повтором.', accepted:'Имя сохранено в сессии pi.', rejected:'Агент не смог сохранить имя. Проверьте сессию.', expired:'Агент не получил запрос или сессия изменилась.', acknowledged:'Можно повторить сохранение.'};
+    const statuses = {queued:'Ожидаем передачи агенту…', dispatching:'Сохраняем имя…', unconfirmed:'Сохранение не подтверждено. Проверьте имя в kitty перед повтором.', accepted:'Имя установлено в сессии pi.', rejected:'Агент не смог сохранить имя. Проверьте сессию.', expired:'Агент не получил запрос или сессия изменилась.', acknowledged:'Можно повторить сохранение.'};
     $('#rename-status').textContent = !data.available ? 'Агент не подключён к веб-чату.' : !data.rename_supported ? 'Обновите расширение и выполните /reload в pi.' : (statuses[state] || '');
     $('#rename-submit').disabled = !data.available || !data.rename_supported || ['queued','dispatching','unconfirmed'].includes(state);
     $('#rename-ack').hidden = state !== 'unconfirmed';
