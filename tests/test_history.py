@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from pi_kitty.common import Error
-from pi_kitty.history import hidden_history, list_history, read_session
+from pi_kitty.history import hidden_history, list_history, read_session, recent_directories
 from pi_kitty.resume import resume
 from pi_kitty.view import grouped, status
 
@@ -54,6 +54,20 @@ class HistoryTests(unittest.TestCase):
             len(hidden_history(sessions, [{"session_id": "test-1", "cwd": "/other"}])),
             1,
         )
+
+    def test_recent_directories_order_dedup_and_missing(self):
+        other = self.root / "other"
+        other.mkdir()
+        newer = self.folder / "new.jsonl"
+        newer.write_text(json.dumps({"type": "session", "cwd": str(other)}))
+        duplicate = self.folder / "duplicate.jsonl"
+        duplicate.write_text(json.dumps({"type": "session", "cwd": str(other)}))
+        missing = self.folder / "missing.jsonl"
+        missing.write_text(json.dumps({"type": "session", "cwd": str(self.root / "missing")}))
+        for index, path in enumerate([self.path, newer, duplicate, missing]):
+            os.utime(path, (index + 1, index + 1))
+        self.assertEqual(recent_directories([self.root / "sessions"]), [str(other), str(self.cwd)])
+        self.assertEqual(recent_directories([self.root / "sessions"], limit=1), [str(other)])
 
     def test_no_name_and_malformed_entries(self):
         self.path.write_text(

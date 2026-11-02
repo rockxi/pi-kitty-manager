@@ -51,7 +51,7 @@
   border-color: rgba(50, 82, 145, .36);
   color: var(--glass-primary-ink);
 }
-.login-form #launch-ack, .login-form #rename-ack {
+.login-form #launch-ack, .login-form #rename-ack, #launch-dialog .login-form .launch-folder {
   background: linear-gradient(180deg, var(--glass-highlight), transparent 66%), var(--glass-fill);
   border-color: var(--glass-edge);
   color: var(--glass-ink);
@@ -89,5 +89,5 @@ button:disabled { cursor: not-allowed; }
 @media (prefers-reduced-transparency: reduce), (forced-colors: active) {
   .glass-refraction :is(.open-chat, .chat-close, .login-form button, #chat-send, .logout), .open-chat, .chat-close, .login-form button, #chat-send, .logout { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--surface); border: 1px solid currentColor; box-shadow: none; }
   .glass-light { display: none; }
-  .login-form button:not(.chat-close):not(#launch-ack):not(#rename-ack), #chat-send { background: var(--glass-primary); color: var(--glass-primary-ink); }
+  .login-form button:not(.chat-close):not(#launch-ack):not(#rename-ack):not(.launch-folder), #chat-send { background: var(--glass-primary); color: var(--glass-primary-ink); }
 }

@@ -122,6 +122,41 @@ def list_history(roots: list[Path] | None = None) -> list[dict]:
     return sorted(sessions, key=lambda s: s["modified"], reverse=True)
 
 
+def recent_directories(roots: list[Path] | None = None, limit: int = 30) -> list[str]:
+    """Return existing session directories by most recently modified session."""
+    paths = []
+    for root in roots if roots is not None else session_roots():
+        try:
+            for path in list(root.glob("*.jsonl")) + list(root.glob("*/*.jsonl")):
+                try:
+                    if not path.is_symlink() and path.is_file():
+                        paths.append((path.stat().st_mtime, path))
+                except OSError:
+                    continue
+        except OSError:
+            continue
+    folders, seen = [], set()
+    for _, path in sorted(paths, key=lambda item: item[0], reverse=True):
+        try:
+            with path.open("rb") as stream:
+                line = stream.readline(MAX_LINE + 1)
+            if len(line) > MAX_LINE:
+                continue
+            header = json.loads(line)
+            cwd = header.get("cwd") if isinstance(header, dict) and header.get("type") == "session" else None
+            if (not isinstance(cwd, str) or not cwd.startswith("/") or len(cwd) > 1024
+                    or any(ord(c) < 32 or ord(c) == 127 for c in cwd)
+                    or cwd in seen or not Path(cwd).is_dir()):
+                continue
+            seen.add(cwd)
+            folders.append(cwd)
+            if len(folders) >= limit:
+                break
+        except (OSError, ValueError, UnicodeDecodeError):
+            continue
+    return folders
+
+
 def hidden_history(history: list[dict], agents: list[dict]) -> list[dict]:
     # Match by actual file identity, not session ID: forks/copies can share IDs.
     active = {

@@ -57,7 +57,8 @@
       <div class="chat-header"><h2 id="launch-title">Новый агент</h2><button type="button" class="chat-close" id="launch-close" aria-label="Закрыть">×</button></div>
       <p>Новая вкладка pi откроется в kitty на выбранном компьютере.</p>
       <label for="launch-machine">Компьютер</label><select id="launch-machine" required></select>
-      <label for="launch-cwd">Абсолютный путь к папке</label><input id="launch-cwd" list="launch-folders" placeholder="/Users/name/project" required maxlength="1024"><datalist id="launch-folders"></datalist>
+      <label for="launch-cwd">Абсолютный путь к папке</label><input id="launch-cwd" placeholder="/Users/name/project" required maxlength="1024" autocomplete="off">
+      <div id="launch-recent" class="launch-recent" hidden><p>Недавние папки</p><div id="launch-folders" class="launch-folders" aria-label="Недавние папки"></div></div>
       <button id="launch-submit" type="submit">Создать агента</button>
       <p id="launch-status" role="status"></p>
       <button id="launch-ack" type="button" hidden>Я проверил kitty — разрешить новый запуск</button>

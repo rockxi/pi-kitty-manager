@@ -175,9 +175,13 @@ function updateLaunchFolders() {
   const machine = machines.find(m => m.id === $('#launch-machine').value);
   launchMachine = machine?.id || null; launchId = null;
   const list = $('#launch-folders'); list.replaceChildren();
-  for (const folder of [...new Set((machine?.agents || []).map(a => a.cwd).filter(Boolean))]) {
-    const option = document.createElement('option'); option.value = folder; list.append(option);
+  const folders = [...new Set([...(machine?.recent_directories || []), ...(machine?.agents || []).map(a => a.cwd)].filter(Boolean))];
+  for (const folder of folders) {
+    const button = make('button', 'launch-folder', folder); button.type = 'button'; button.title = folder;
+    button.addEventListener('click', () => { $('#launch-cwd').value = folder; $('#launch-cwd').focus(); });
+    list.append(button);
   }
+  $('#launch-recent').hidden = !folders.length;
   $('#launch-cwd').value = machine?.agents.find(a => a.cwd)?.cwd || '';
   refreshLaunch();
 }

@@ -28,6 +28,7 @@ import uuid
 
 from .common import Client, clean, secure_dir
 from .kitty import Kitty
+from .history import recent_directories
 
 
 def client_dir():
@@ -181,6 +182,7 @@ def run(server, token_path, name, interval, launch_endpoint=None, chat=False):
         ProxyHandler({}), HTTPSHandler(context=tls_context()), NoRedirect()
     )
     receipt = None
+    folders, folders_updated = [], 0.0
     while True:
         try:
             agents = [
@@ -194,6 +196,9 @@ def run(server, token_path, name, interval, launch_endpoint=None, chat=False):
         # common.Error is not an OSError; an unavailable daemon must not stop reporting.
         except Exception:
             agents, connected = [], False
+        if launch_endpoint and time.monotonic() - folders_updated >= 30:
+            folders = recent_directories()
+            folders_updated = time.monotonic()
         payload = json.dumps(
             {
                 "machine_id": ident,
@@ -201,6 +206,7 @@ def run(server, token_path, name, interval, launch_endpoint=None, chat=False):
                 "daemon_connected": connected,
                 "launch_enabled": bool(launch_endpoint),
                 "agents": agents,
+                "recent_directories": folders,
             },
             ensure_ascii=False,
         ).encode()

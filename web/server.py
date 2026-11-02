@@ -134,6 +134,13 @@ def parse_update(payload):
                 raise ValueError("Invalid agent field")
             item[key] = value
         safe_agents.append(item)
+    folders = payload.get("recent_directories", [])
+    if (not isinstance(folders, list) or len(folders) > 30 or any(
+        not isinstance(folder, str) or not folder.startswith("/") or len(folder) > 1024
+        or any(ord(c) < 32 or ord(c) == 127 for c in folder)
+        for folder in folders
+    )):
+        raise ValueError("Invalid recent directories")
     launch_enabled = payload.get("launch_enabled", False)
     if type(launch_enabled) is not bool:
         raise ValueError("Invalid launch capability")
@@ -143,6 +150,7 @@ def parse_update(payload):
         "daemon_connected": connected,
         "launch_enabled": launch_enabled,
         "agents": safe_agents,
+        "recent_directories": list(dict.fromkeys(folders)),
         "last_seen": time.time(),
     }
 
