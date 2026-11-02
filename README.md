@@ -2,9 +2,9 @@
 
 # pi-kitty-manager
 
-**All your pi agents in one place.**
+**Your pi agents in kitty and on the web.**
 
-Switch between conversations instead of hunting through terminal tabs.
+Find and switch between conversations in your terminal, or monitor and manage agents from an optional web dashboard.
 
 [![GitHub stars](https://img.shields.io/github/stars/rockxi/pi-kitty-manager?style=flat-square&label=stars&color=E9B86C)](https://github.com/rockxi/pi-kitty-manager/stargazers)
 [![GitHub last commit](https://img.shields.io/github/last-commit/rockxi/pi-kitty-manager?style=flat-square&color=8BCABF)](https://github.com/rockxi/pi-kitty-manager/commits)
@@ -13,7 +13,7 @@ Switch between conversations instead of hunting through terminal tabs.
 
 **English** · [Русский](README.ru.md)
 
-[Installation](#installation) · [Usage](#usage) · [Troubleshooting](#troubleshooting) · [How it works](#how-it-works)
+[Installation](#installation) · [Web dashboard](#web-dashboard) · [Usage](#usage) · [Troubleshooting](#troubleshooting) · [How it works](#how-it-works)
 
 </div>
 
@@ -56,7 +56,8 @@ The current terminal interface is in Russian. The following example illustrates 
 - **Search and switch.** Search by folder, conversation name, model, or tab. Press Enter to focus the pane.
 - **Saved history.** Cycle active, history and hidden views with `Ctrl+T`; select a closed session to resume it in a new kitty tab.
 - **Starts with kitty.** The daemon starts in the background without an extra tab; multiple windows reuse the same daemon.
-- **Local by design.** No web server, TCP listener, or model requests. History is read locally; the first user message may be shown for unnamed sessions.
+- **Optional web dashboard.** Monitor agents across computers, chat and rename sessions, or start a new agent in kitty when those capabilities are enabled.
+- **Local by default.** The terminal manager needs no web server, TCP listener, or model requests. Web access is separately configured; history is read locally.
 
 ## Installation
 
@@ -130,6 +131,16 @@ Open several pi agents in kitty and press **Ctrl+Shift+P**. Alternatively, run t
 
 The [detailed installation guide](docs/installation.md) covers an optional LaunchAgent, advanced configuration, and removal; it is currently in Russian.
 
+## Web dashboard
+
+The optional, self-hosted dashboard brings agents from multiple computers together in a browser. It shows their folders and status; with separate opt-ins, you can chat with idle agents, send supported slash commands and images, rename sessions, and launch a new pi tab in kitty. The launch form offers recent directories from pi session history as well as manual path entry.
+
+The server runs via Docker Compose on `localhost:8500`, or behind an HTTPS reverse proxy. Each computer connects with a machine secret; chat and launching are disabled unless explicitly enabled. The project also has a deployment at [agents.rockxi.ru](https://agents.rockxi.ru); connecting to it requires the deployment owner's credentials and machine secret. It is not an open registration service.
+
+**Security:** web access sends agent metadata to the configured server. Enabling chat also shares recent conversation messages; enabling launch shares recent directory paths. Anyone with dashboard access can send instructions to agents or start them on enabled computers. Use a trusted server, strong credentials, HTTPS and, where possible, additional network restrictions. There is currently no MFA or per-device revocation.
+
+See the [web dashboard setup and security guide](docs/web-dashboard.ru.md) (in Russian) for server configuration, connecting computers, limitations and key rotation.
+
 ## Interface language
 
 The default is Russian for compatibility with existing installations. To use English, add this **top-level** setting to `~/.config/pi-kitty/config.toml` (or `$XDG_CONFIG_HOME/pi-kitty/config.toml`):
@@ -191,7 +202,7 @@ kitty watcher ── automatic start ───┘                    │
                                                  kitten: list and search
 ```
 
-The daemon keeps an in-memory registry of active agents and checks their processes and pane locations. The pi extension reports activity and the current session name. The kitten opens a list over the terminal and focuses the selected pane after the overlay closes.
+The daemon keeps an in-memory registry of active agents and checks their processes and pane locations. The pi extension reports activity and the current session name. The kitten opens a list over the terminal and focuses the selected pane after the overlay closes. When enabled, a local web client sends snapshots to the dashboard; the pi extension handles opt-in chat and renaming, and the client handles opt-in launches.
 
 ## Compatibility
 
