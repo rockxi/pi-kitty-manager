@@ -313,11 +313,9 @@ let chatPolling = false;
 function openChat(machine, agent, navigate = true) {
   currentChat = {machine: machine.id, agent: agent.agent_id};
   if (navigate) history.pushState(null, '', '#/chat?' + new URLSearchParams(currentChat));
-  $('#dashboard-view').hidden = true; $('#chat-page').hidden = false;
+  $('#dashboard-view').hidden = true; $('#chat-page').hidden = false; $('#chat-close').hidden = false;
   chatGeneration = null; chatSession = null; chatImageSupported = false; chatAttachments = []; renderAttachments();
   chatMessages = '';
-  $('#chat-title').textContent = agent.session_name || 'Без названия';
-  $('#chat-computer').textContent = machine.name;
   $('#chat-error').textContent = '';
   $('#chat-messages').replaceChildren();
   document.title = `${agent.session_name || 'Диалог'} — Pi Kitty`;
@@ -341,7 +339,7 @@ async function refreshChat() {
     chatGeneration = data.generation; chatSession = data.session; chatImageSupported = data.image_supported === true;
     chatCommandsSupported = data.commands_supported === true; chatCommands = data.commands || []; renderSlashSuggestions();
     const delivery = data.delivery?.state;
-    $('#chat-status').textContent = !data.available ? 'Диалог недоступен. Включите веб-чат в kitty и перезапустите pi.' : data.pending ? 'Сообщение ожидает передачи…' : delivery === 'unconfirmed' ? 'Передача не подтверждена. Не отправляйте повторно, пока не проверите диалог.' : delivery === 'rejected' ? 'Агент не принял сообщение. Проверьте его состояние.' : delivery === 'expired' ? 'Время доставки истекло. Сообщение не передано.' : data.busy ? 'Агент работает…' : delivery === 'accepted' ? 'Сообщение принято агентом.' : 'Агент готов';
+    $('#chat-status').textContent = !data.available ? 'Диалог недоступен. Включите веб-чат в kitty и перезапустите pi.' : data.pending ? 'Сообщение ожидает передачи…' : delivery === 'unconfirmed' ? 'Передача не подтверждена. Не отправляйте повторно, пока не проверите диалог.' : delivery === 'rejected' ? 'Агент не принял сообщение. Проверьте его состояние.' : delivery === 'expired' ? 'Время доставки истекло. Сообщение не передано.' : data.busy ? 'Агент работает…' : delivery === 'accepted' ? 'Сообщение принято агентом.' : '';
     $('#chat-send').disabled = !data.available || data.busy || data.pending || delivery === 'unconfirmed' || chatReading || chatSending;
     $('#chat-attach').disabled = !data.available || !chatImageSupported || chatReading || chatSending;
     $('#chat-attach').title = chatImageSupported ? 'Прикрепить изображение' : 'Для изображений обновите расширение и выполните /reload в pi.';
@@ -365,7 +363,7 @@ async function refreshChat() {
 function closeChat(navigate = true) {
   if (!currentChat && !location.hash.startsWith('#/chat?')) return;
   currentChat = null; chatGeneration = null; chatSession = null; chatAttachments = []; renderAttachments(); $('#chat-image-input').value = '';
-  $('#chat-page').hidden = true; $('#dashboard-view').hidden = false; document.title = 'Pi Kitty — агенты';
+  $('#chat-page').hidden = true; $('#chat-close').hidden = true; $('#dashboard-view').hidden = false; document.title = 'Pi Kitty — агенты';
   if (navigate) history.pushState(null, '', location.pathname + location.search);
   render();
 }
